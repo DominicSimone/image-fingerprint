@@ -1,13 +1,20 @@
-pub fn eigenvalue2x2(a: u32, b: u32, c: u32, d: u32) -> (f32, f32) {
-    (0.0, 0.0)
+/**
+ * Takes in values from a 2x2 matrix and computes the eigenvalues.
+ */
+pub fn eigenvalues2x2(a: f32, b: f32, c: f32, d: f32) -> Result<(f32, f32), u32> {
+    quadratic(1., -1. * (a+d), a*d - b*c)
 }
 
-pub fn quadratic(a: f32, b: f32, c: f32) -> Result<(f32, f32), String> {
+/**
+ * Takes in coefficients for a second degree polynomial and solves the
+ * quadratic formula, returning any existing real roots.
+ */
+pub fn quadratic(a: f32, b: f32, c: f32) -> Result<(f32, f32), u32> {
     let denom = 2. * a;
     let root = (b * b - 4. * a * c).sqrt();
 
     match root.is_nan() {
-        true => return Err(String::from("Quadratic failed; complex numbers")),
+        true => return Err(404),
         false => return Ok(((-1. * b + root) / denom, (-1. * b - root) / denom)),
     }
 }
@@ -24,6 +31,11 @@ mod tests {
             return false
         }
         true
+    }
+
+    #[test]
+    fn test_eigenvalues() {
+        assert_eq!(eigenvalues2x2(1., 1., 1., 1.).unwrap(), (2., 0.));
     }
 
     #[test]
