@@ -1,25 +1,53 @@
+#![allow(unused_parens)]
+
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
-use image::DynamicImage;
+use image::{DynamicImage, GenericImageView, Rgb};
+
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 mod linalg;
 
-/**
- * 0 0  0
- * 1 0 -1
- * 0 0  0
- */
 const KERNEL_X: [f32; 9] = [0., 0., 0., 1., 0., -1., 0., 0., 0.];
-/**
- * 0  1 0
- * 0  0 0
- * 0 -1 0
- */
 const KERNEL_Y: [f32; 9] = [0., 1., 0., 0., 0., 0., 0., -1., 0.];
 
+#[derive(Copy, Clone, Debug)]
+struct Corner {
+    index: usize,
+    eigens: (f32, f32),
+}
+
+impl PartialEq for Corner {
+    fn eq(&self, other: &Self) -> bool {
+        self.eigens == other.eigens
+    }
+}
+
+impl Eq for Corner {}
+
+impl PartialOrd for Corner {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.eigens
+            .0
+            .max(self.eigens.1)
+            .partial_cmp(&other.eigens.0.max(other.eigens.1))
+    }
+}
+
+impl Ord for Corner {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let diff = self.eigens.0.max(self.eigens.1) - &other.eigens.0.max(other.eigens.1);
+        match diff > 0. {
+            true => Ordering::Greater,
+            false => Ordering::Less,
+        }
+    }
+}
+
 fn main() {
-    let img = open("./test/succulent_512.png");
-    shi_tomasi(&small(&img));
+    let /*mut*/ img = open("./test/succulent_512.png");
+    shi_tomasi(&small(&img), 5);
 }
 
 fn open(path: &str) -> DynamicImage {
@@ -44,13 +72,61 @@ fn second_moment_prep(
         .as_bytes()
         .iter()
         .zip(gradient_y.as_bytes().iter())
-        .map(|(x, y)| ((*x as u32).pow(2), (*x as u32) * (*y as u32), (*y as u32).pow(2)))
+        .map(|(x, y)| {
+            (
+                (*x as u32).pow(2),
+                (*x as u32) * (*y as u32),
+                (*y as u32).pow(2),
+            )
+        })
         .collect()
 }
 
-pub fn shi_tomasi(image: &DynamicImage) {
+/**
+ *
+ * @param window_size the size of the window used to find features, must be odd
+ */
+pub fn shi_tomasi(image: &DynamicImage, window_size: usize) {
+    assert!(window_size % 2 != 0);
+
     let (grad_x, grad_y) = gradients(image);
-    let gradients_mult = second_moment_prep(&grad_x, &grad_y);
+    let sm_data = second_moment_prep(&grad_x, &grad_y);
+
+    // Window over sm_data and find eigen values of constructed second moment matrix
+    let width = image.width() as usize;
+    let height = image.height() as usize;
+    let mut eigenvalues: Vec<(f32, f32)> = vec![(0., 0.); width * height];
+    let mut corner_heap: BinaryHeap<Corner> = BinaryHeap::new();
+
+    let mut sumx2: u32 = 0;
+    let mut sumxy: u32 = 0;
+    let mut sumy2: u32 = 0;
+    for row in 0..(height - window_size) {
+        for w_start in 0..(width - window_size) {
+
+            for w_row in 0..window_size {
+                for p in 0..window_size {
+                    let index = (row * width) + w_start + (w_row * width) + p;
+                    sumx2 += sm_data[index].0;
+                    sumxy += sm_data[index].1;
+                    sumy2 += sm_data[index].2;
+                }
+            }
+            let w_center =
+                (row * width) + w_start + (row * window_size / 2) + (window_size / 2) + 1;
+            // TODO error handling for when the eigenvalue calculation fails
+            let eigens =
+                linalg::eigenvalues2x2(sumx2 as f32, sumxy as f32, sumxy as f32, sumy2 as f32)
+                    .unwrap();
+            corner_heap.push(Corner {
+                index: w_center,
+                eigens: eigens,
+            });
+            eigenvalues[w_center] = eigens;
+        }
+    }
+    // TODO iterate over eigenvalues and select corners that are local maximums
+    // TODO mark the image with corners found (flagged feature?)
 }
 
 pub fn small(image: &DynamicImage) -> DynamicImage {
@@ -59,4 +135,16 @@ pub fn small(image: &DynamicImage) -> DynamicImage {
 
 pub fn save(image: &DynamicImage) {
     image.save("./test/out.png").ok();
+}
+
+pub fn mark(image: &mut DynamicImage, x: u32, y: u32, r: u32) {
+    let img = image.as_mut_rgb8().unwrap();
+
+    for j in x - r..=x + r {
+        for k in y - r..=y + r {
+            if (j == x - r || j == x + r || k == y - r || k == y + r) {
+                img.put_pixel(j, k, Rgb([255, 0, 0]));
+            }
+        }
+    }
 }
