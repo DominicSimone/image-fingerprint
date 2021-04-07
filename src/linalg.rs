@@ -2,7 +2,9 @@
  * Takes in values from a 2x2 matrix and computes the eigenvalues.
  */
 pub fn eigenvalues2x2(a: f32, b: f32, c: f32, d: f32) -> Result<(f32, f32), u32> {
-    quadratic(1., -1. * (a+d), a*d - b*c)
+    let res = quadratic(1., -1. * (a+d), a*d - b*c);
+    println!("{} {} {} {} {:?}", a, b, c, d, res);
+    res
 }
 
 /**

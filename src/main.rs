@@ -12,6 +12,11 @@ mod linalg;
 const KERNEL_X: [f32; 9] = [0., 0., 0., 1., 0., -1., 0., 0., 0.];
 const KERNEL_Y: [f32; 9] = [0., 1., 0., 0., 0., 0., 0., -1., 0.];
 
+/**
+ * 1. Add prints to eigen functions to debug (can plug in values to online calculator)
+ * 2. Window macro? macro takes in one/two functions
+ */
+
 #[derive(Copy, Clone, Debug)]
 struct Corner {
     index: usize,
@@ -46,18 +51,15 @@ impl Ord for Corner {
 }
 
 fn main() {
-    let mut img = open("./test/succulent_512.png");
-    let corners = shi_tomasi(&small(&img), 7);
+    let mut img = small(&open("./test/triangle_256.png"), 0.125);
+    let corners = shi_tomasi(&img, 5, 10);
     for c in corners {
+        println!("i:{}: {:?}", c.index, c.eigens);
         let x = c.index as u32 % img.width();
         let y = (c.index as u32 - x) / img.width();
-        mark(&mut img, x, y, 5);
+        mark(&mut img, x, y, 1);
     }
     save(&img);
-}
-
-fn open(path: &str) -> DynamicImage {
-    ImageReader::open(path).unwrap().decode().unwrap()
 }
 
 fn gradients(image: &DynamicImage) -> (DynamicImage, DynamicImage) {
@@ -87,7 +89,7 @@ fn second_moment_prep(
         .collect()
 }
 
-fn shi_tomasi(image: &DynamicImage, window_size: usize) -> Vec<Corner>{
+fn shi_tomasi(image: &DynamicImage, window_size: usize, num_corners: usize) -> Vec<Corner> {
     assert!(window_size % 2 != 0);
 
     let (grad_x, grad_y) = gradients(image);
@@ -100,13 +102,11 @@ fn shi_tomasi(image: &DynamicImage, window_size: usize) -> Vec<Corner>{
     let mut eigenvalues: Vec<(f32, f32)> = vec![(0., 0.); width * height];
     let mut corner_heap: BinaryHeap<Corner> = BinaryHeap::new();
 
-    let mut sumx2: u32 = 0;
-    let mut sumxy: u32 = 0;
-    let mut sumy2: u32 = 0;
-    for row in 0..(height - window_size) {
-        for w_start in 0..(width - window_size) {
-            let w_center =
-                (row * width) + w_start + (row * window_size / 2) + (window_size / 2) + 1;
+    for row in 0..=(height - window_size) {
+        for w_start in 0..=(width - window_size) {
+            let mut sumx2: u32 = 0;
+            let mut sumxy: u32 = 0;
+            let mut sumy2: u32 = 0;
             for w_row in 0..window_size {
                 for p in 0..window_size {
                     let index = (row * width) + w_start + (w_row * width) + p;
@@ -116,27 +116,29 @@ fn shi_tomasi(image: &DynamicImage, window_size: usize) -> Vec<Corner>{
                 }
             }
             // TODO error handling for when the eigenvalue calculation fails
+            let w_center =
+                (row * width) + w_start + (width * (window_size / 2)) + (window_size / 2);
+            print!("{}:", w_center);
             let eigens =
                 linalg::eigenvalues2x2(sumx2 as f32, sumxy as f32, sumxy as f32, sumy2 as f32)
                     .unwrap();
-            corner_heap.push(Corner {
-                index: w_center,
-                eigens: eigens,
-            });
             eigenvalues[w_center] = eigens;
         }
     }
 
+    //println!("{:?}", eigenvalues);
+
     // iterate over eigenvalues and select corners that are local maximums
-    for row in 0..(height - window_size) {
-        for w_start in 0..(width - window_size) {
+    for row in 0..=(height - window_size) {
+        for w_start in 0..=(width - window_size) {
             let w_center =
-                (row * width) + w_start + (row * window_size / 2) + (window_size / 2) + 1;
+                (row * width) + w_start + (width * (window_size / 2)) + (window_size / 2);
             let mut local_max = true;
             let center_max = eigenvalues[w_center].0.max(eigenvalues[w_center].1);
             'window: for w_row in 0..window_size {
                 for p in 0..window_size {
                     let i = (row * width) + w_start + (w_row * width) + p;
+                    // TODO this is not working as intended, adjacent pixels are being added as corners (maybe fixed with window_center changes?)
                     if i != w_center && eigenvalues[i].0.max(eigenvalues[i].1) > center_max {
                         local_max = false;
                         break 'window;
@@ -152,31 +154,44 @@ fn shi_tomasi(image: &DynamicImage, window_size: usize) -> Vec<Corner>{
         }
     }
     let mut corners: Vec<Corner> = Vec::new();
-    let size = std::cmp::min(corner_heap.len(), 10);
+    let size = std::cmp::min(corner_heap.len(), num_corners);
     for _ in 0..size {
-        corners.push(corner_heap.pop().unwrap());
+        let temp: Corner = corner_heap.pop().unwrap();
+        if temp.eigens.0 != 0.0 || temp.eigens.1 != 0.0 {
+            corners.push(corner_heap.pop().unwrap());
+        }
     }
     corners
 }
 
-pub fn small(image: &DynamicImage) -> DynamicImage {
-    image.resize(16, 16, Gaussian)
+fn open(path: &str) -> DynamicImage {
+    ImageReader::open(path).unwrap().decode().unwrap()
 }
 
-pub fn save(image: &DynamicImage) {
+fn save(image: &DynamicImage) {
     image.save("./test/out.png").ok();
 }
 
-pub fn mark(image: &mut DynamicImage, x: u32, y: u32, r: u32) {
+fn small(image: &DynamicImage, ratio: f32) -> DynamicImage {
+    image.resize(
+        (image.width() as f32 * ratio) as u32,
+        (image.height() as f32 * ratio) as u32,
+        Gaussian,
+    )
+}
+
+fn mark(image: &mut DynamicImage, x: u32, y: u32, r: u32) {
     let img = image.as_mut_rgb8().unwrap();
-    let xmin = if x >= r { x - r } else { 0 };
-    let xmax = if x <= img.width() - r {x + r} else {img.width()};
-    let ymin = if y >= r { y - r } else { 0 };
-    let ymax = if y <= img.height() - r {y + r} else {img.height()};
+    let xmin: i32 = x as i32 - r as i32;
+    let xmax: i32 = x as i32 + r as i32;
+    let ymin: i32 = y as i32 - r as i32;
+    let ymax: i32 = y as i32 + r as i32;
     for j in xmin..=xmax {
         for k in ymin..=ymax {
             if (j == xmin || j == xmax || k == ymin || k == ymax) {
-                img.put_pixel(j, k, Rgb([255, 0, 0]));
+                if (j >= 0 && j < img.width() as i32 && k >= 0 && k < img.height() as i32) {
+                    img.put_pixel(j as u32, k as u32, Rgb([255, 0, 0]));
+                }
             }
         }
     }
