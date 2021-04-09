@@ -2,7 +2,7 @@
 
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
-use image::{DynamicImage, GenericImageView, Rgb};
+use image::{DynamicImage, GenericImageView, Rgb, GrayImage};
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -12,9 +12,12 @@ mod linalg;
 const KERNEL_X: [f32; 9] = [0., 0., 0., 1., 0., -1., 0., 0., 0.];
 const KERNEL_Y: [f32; 9] = [0., 1., 0., 0., 0., 0., 0., -1., 0.];
 
+const SOBEL_KERNEL_X: [f32; 9] = [1., 0., -1., 2., 0., -2., 1., 0., -1.];
+const SOBEL_KERNEL_Y: [f32; 9] = [1., 2., 1., 0., 0., 0., -1., -2., -1.];
+
 /**
- * 1. Add prints to eigen functions to debug (can plug in values to online calculator)
- * 2. Window macro? macro takes in one/two functions
+ * - Still not finding corners correctly
+ * - Find a way to abstract out the square root in linalg -> if we are comparing two values and both are square rooted, do we really need the root?
  */
 
 #[derive(Copy, Clone, Debug)]
@@ -33,10 +36,7 @@ impl Eq for Corner {}
 
 impl PartialOrd for Corner {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.eigens
-            .0
-            .max(self.eigens.1)
-            .partial_cmp(&other.eigens.0.max(other.eigens.1))
+        (self.eigens.0 * self.eigens.1).partial_cmp(&(other.eigens.0 * other.eigens.1))
     }
 }
 
@@ -51,8 +51,8 @@ impl Ord for Corner {
 }
 
 fn main() {
-    let mut img = small(&open("./test/triangle_256.png"), 0.125);
-    let corners = shi_tomasi(&img, 5, 10);
+    let mut img = small(&open("./test/star_noisy_512.png"), 1. / 4.);
+    let corners = shi_tomasi(&img, 5, 10, 0.);
     for c in corners {
         println!("i:{}: {:?}", c.index, c.eigens);
         let x = c.index as u32 % img.width();
@@ -62,38 +62,61 @@ fn main() {
     save(&img);
 }
 
-fn gradients(image: &DynamicImage) -> (DynamicImage, DynamicImage) {
-    let gray = image.grayscale().blur(0.5);
+fn grads(image: &DynamicImage, window_size: u32) -> Vec<(f32, f32)> {
+    let gray = image.grayscale().blur(0.2);
+    let bytes = gray.as_bytes();
 
-    let grad_x = gray.filter3x3(&KERNEL_X);
-    let grad_y = gray.filter3x3(&KERNEL_Y);
+    let mut grads = vec![(0 as f32, 0 as f32); bytes.len()];
 
-    (grad_x, grad_y)
+    let width = image.width();
+    let height = image.height();
+    for row in 0..=(height - window_size) {
+        for w_start in 0..=(width - window_size) {
+            let w_center =
+                (row * width) + w_start + (width * (window_size / 2)) + (window_size / 2);
+            let mut k_i = 0;
+            let mut sumx = 0.;
+            let mut sumy = 0.;
+            for w_row in 0..window_size {
+                for p in 0..window_size {
+                    let index = (row * width) + w_start + (w_row * width) + p;
+
+                    sumx += KERNEL_X[k_i] * bytes[index as usize] as f32;
+                    sumy += KERNEL_Y[k_i] * bytes[index as usize] as f32;
+
+                    k_i += 1;
+                }
+            }
+            grads[w_center as usize] = (sumx, sumy);
+        }
+    }
+
+    grads
 }
 
-fn second_moment_prep(
-    gradient_x: &DynamicImage,
-    gradient_y: &DynamicImage,
-) -> Vec<(u32, u32, u32)> {
+fn sm_prep(gradient_x: &Vec<(f32, f32)>) -> Vec<(f32, f32, f32)> {
     gradient_x
-        .as_bytes()
         .iter()
-        .zip(gradient_y.as_bytes().iter())
         .map(|(x, y)| {
             (
-                (*x as u32).pow(2),
-                (*x as u32) * (*y as u32),
-                (*y as u32).pow(2),
+                (x * x),
+                (x * y),
+                (y * y),
             )
         })
         .collect()
 }
 
-fn shi_tomasi(image: &DynamicImage, window_size: usize, num_corners: usize) -> Vec<Corner> {
+fn shi_tomasi(
+    image: &DynamicImage,
+    window_size: usize,
+    num_corners: usize,
+    threshold: f32,
+) -> Vec<Corner> {
     assert!(window_size % 2 != 0);
 
-    let (grad_x, grad_y) = gradients(image);
-    let sm_data = second_moment_prep(&grad_x, &grad_y);
+    let grads = grads(image, 3);
+    let sm_data = sm_prep(&grads);
 
     // Window over sm_data and find eigen values of constructed second moment matrix
     let width = image.width() as usize;
@@ -104,9 +127,9 @@ fn shi_tomasi(image: &DynamicImage, window_size: usize, num_corners: usize) -> V
 
     for row in 0..=(height - window_size) {
         for w_start in 0..=(width - window_size) {
-            let mut sumx2: u32 = 0;
-            let mut sumxy: u32 = 0;
-            let mut sumy2: u32 = 0;
+            let mut sumx2: f32 = 0.;
+            let mut sumxy: f32 = 0.;
+            let mut sumy2: f32 = 0.;
             for w_row in 0..window_size {
                 for p in 0..window_size {
                     let index = (row * width) + w_start + (w_row * width) + p;
@@ -115,13 +138,15 @@ fn shi_tomasi(image: &DynamicImage, window_size: usize, num_corners: usize) -> V
                     sumy2 += sm_data[index].2;
                 }
             }
+
             // TODO error handling for when the eigenvalue calculation fails
             let w_center =
                 (row * width) + w_start + (width * (window_size / 2)) + (window_size / 2);
-            print!("{}:", w_center);
+
             let eigens =
                 linalg::eigenvalues2x2(sumx2 as f32, sumxy as f32, sumxy as f32, sumy2 as f32)
                     .unwrap();
+            //let harris = linalg::harris_corner_score(sumx2 as f32, sumxy as f32, sumy2 as f32);
             eigenvalues[w_center] = eigens;
         }
     }
@@ -153,12 +178,15 @@ fn shi_tomasi(image: &DynamicImage, window_size: usize, num_corners: usize) -> V
             }
         }
     }
+
+    println!("{:?}", corner_heap);
+
     let mut corners: Vec<Corner> = Vec::new();
     let size = std::cmp::min(corner_heap.len(), num_corners);
     for _ in 0..size {
         let temp: Corner = corner_heap.pop().unwrap();
-        if temp.eigens.0 != 0.0 || temp.eigens.1 != 0.0 {
-            corners.push(corner_heap.pop().unwrap());
+        if temp.eigens.0 > threshold && temp.eigens.1 > threshold {
+            corners.push(temp);
         }
     }
     corners
