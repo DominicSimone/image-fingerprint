@@ -2,17 +2,14 @@
  * Takes in values from a 2x2 matrix and computes the eigenvalues.
  */
 pub fn eigenvalues2x2(a: f32, b: f32, c: f32, d: f32) -> Result<(f32, f32), u32> {
-    let res = quadratic(1., -1. * (a + d), a * d - b * c);
-    //println!("{} {} {} {} {:?}", a, b, c, d, res);
-    res
+    quadratic(1., -1. * (a + d), a * d - b * c)
 }
 
 pub fn harris_corner_score(xx: f32, xy: f32, yy: f32) -> f32 {
     let det = xx * yy - xy * xy;
     let trace = xx + yy;
     let k = 0.04;
-    let R = det - (k * trace * trace);
-    R
+    det - (k * trace * trace)
 }
 
 /**
