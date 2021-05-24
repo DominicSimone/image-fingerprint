@@ -1,16 +1,19 @@
-#![allow(unused_parens)]
-
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView, Rgb};
 
 mod corner;
+mod fingerprint;
+mod app;
 
 fn main() {
-    let mut img = resize(&open("./test/succulent_512.png"), 1.);
-    let corners = corner::harris(&img, 0.1, 5, 50, 40000.);
-    mark_corners(&mut img, &corners);
-    save(&img);
+    // let mut img = resize(&open("./test/succulent_512.png"), 1. / 2.);
+    // let corners = corner::harris(&img, 0.1, 5, 50, 1000000.);
+    // mark_corners(&mut img, &corners);
+    // save(&img);
+    let app = app::TemplateApp::default();
+    let native_options = eframe::NativeOptions::default();
+    eframe::run_native(Box::new(app), native_options);
 }
 
 fn open(path: &str) -> DynamicImage {
@@ -48,8 +51,8 @@ fn mark_custom(image: &mut DynamicImage, x: u32, y: u32, r: u32, rgb: (u8, u8, u
     let ymax: i32 = y as i32 + r as i32;
     for j in xmin..=xmax {
         for k in ymin..=ymax {
-            if (j == xmin || j == xmax || k == ymin || k == ymax) {
-                if (j >= 0 && j < img.width() as i32 && k >= 0 && k < img.height() as i32) {
+            if j == xmin || j == xmax || k == ymin || k == ymax {
+                if j >= 0 && j < img.width() as i32 && k >= 0 && k < img.height() as i32 {
                     img.put_pixel(j as u32, k as u32, Rgb([rgb.0, rgb.1, rgb.2]));
                 }
             }

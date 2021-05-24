@@ -10,6 +10,7 @@ const SOBEL_KERNEL_Y: [f32; 9] = [1., 2., 1., 0., 0., 0., -1., -2., -1.];
 pub struct Corner {
     pub index: usize,
     pub score: f32,
+    //TODO May need more fields here for fingerprint generation
 }
 
 impl PartialEq for Corner {
@@ -79,7 +80,11 @@ fn grads(
     grads
 }
 
-// Threshold of about 40,000 works decently well for corners
+/**
+ * Returns a vector of corners for an image using a Harris corner detector.
+ * 
+ * A threshold of about 1,000,000 works decently well for finding only corners.
+ */
 pub fn harris(
     image: &DynamicImage,
     gaussian: f32,
