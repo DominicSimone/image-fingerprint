@@ -1,10 +1,13 @@
+#![allow(dead_code)]
+
+use eframe::epi;
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView, Rgb};
 
+mod app;
 mod corner;
 mod fingerprint;
-mod app;
 
 fn main() {
     // let mut img = resize(&open("./test/succulent_512.png"), 1. / 2.);
@@ -12,7 +15,12 @@ fn main() {
     // mark_corners(&mut img, &corners);
     // save(&img);
     let app = app::TemplateApp::default();
-    let native_options = eframe::NativeOptions::default();
+    let mut native_options = eframe::NativeOptions::default();
+    native_options.icon_data = Some(epi::IconData {
+        rgba: open("./icon.png").to_rgba8().into_vec(),
+        width: 128,
+        height: 128,
+    });
     eframe::run_native(Box::new(app), native_options);
 }
 
