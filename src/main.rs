@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use eframe::epi;
+use eframe::epi::{App, IconData};
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView, Rgb};
@@ -8,20 +8,27 @@ use image::{DynamicImage, GenericImageView, Rgb};
 mod app;
 mod corner;
 mod fingerprint;
+mod storage;
 
 fn main() {
     // let mut img = resize(&open("./test/succulent_512.png"), 1. / 2.);
     // let corners = corner::harris(&img, 0.1, 5, 50, 1000000.);
     // mark_corners(&mut img, &corners);
     // save(&img);
-    let app = app::TemplateApp::default();
+
+    let local_storage = match storage::init("./storage/app_persistence.txt") {
+        None => panic!("Failed to open persistent storage"),
+        Some(ls) => ls
+    };
+
+    let gui = app::TemplateApp::default();
     let mut native_options = eframe::NativeOptions::default();
-    native_options.icon_data = Some(epi::IconData {
+    native_options.icon_data = Some(IconData {
         rgba: open("./icon.png").to_rgba8().into_vec(),
         width: 128,
         height: 128,
     });
-    eframe::run_native(Box::new(app), native_options);
+    eframe::run_native(Box::new(gui), native_options);    
 }
 
 fn open(path: &str) -> DynamicImage {

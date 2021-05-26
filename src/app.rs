@@ -27,14 +27,14 @@ impl epi::App for TemplateApp {
 
     /// Called by the framework to load old app state (if any).
     #[cfg(feature = "persistence")]
-    fn load(&mut self, storage: &dyn epi::Storage) {
+    pub fn load(&mut self, storage: &dyn epi::Storage) {
         *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
         println!("Loaded!");
     }
 
     /// Called by the frame work to save state before shutdown.
     #[cfg(feature = "persistence")]
-    fn save(&mut self, storage: &mut dyn epi::Storage) {
+    pub fn save(&mut self, storage: &mut dyn epi::Storage) {
         epi::set_value(storage, epi::APP_KEY, self);
         println!("Saved!");
     }
