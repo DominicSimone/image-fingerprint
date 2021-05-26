@@ -1,4 +1,5 @@
-use eframe::{egui, epi};
+use eframe::{epi, egui};
+use serde;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -27,16 +28,14 @@ impl epi::App for TemplateApp {
 
     /// Called by the framework to load old app state (if any).
     #[cfg(feature = "persistence")]
-    pub fn load(&mut self, storage: &dyn epi::Storage) {
+    fn load(&mut self, storage: &dyn epi::Storage) {
         *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
-        println!("Loaded!");
     }
 
     /// Called by the frame work to save state before shutdown.
     #[cfg(feature = "persistence")]
-    pub fn save(&mut self, storage: &mut dyn epi::Storage) {
+    fn save(&mut self, storage: &mut dyn epi::Storage) {
         epi::set_value(storage, epi::APP_KEY, self);
-        println!("Saved!");
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use eframe::epi::{App, IconData};
+use eframe::epi::{IconData};
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView, Rgb};
@@ -16,10 +16,11 @@ fn main() {
     // mark_corners(&mut img, &corners);
     // save(&img);
 
-    let local_storage = match storage::init("./storage/app_persistence.txt") {
-        None => panic!("Failed to open persistent storage"),
-        Some(ls) => ls
-    };
+    // Seems like egui came with a storage backend through config variables
+    // let local_storage = match storage::init("./storage/app_persistence.txt") {
+    //     None => panic!("Failed to open persistent storage"),
+    //     Some(ls) => ls
+    // };
 
     let gui = app::TemplateApp::default();
     let mut native_options = eframe::NativeOptions::default();
