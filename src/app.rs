@@ -1,6 +1,6 @@
 use eframe::{epi, egui};
-use image::{DynamicImage, ImageBuffer, ImageDecoder};
-use clipboard_win::get_clipboard;
+use egui::{Key, Event};
+use clipboard_win::{get_clipboard, formats};
 use serde;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -17,15 +17,15 @@ pub struct TemplateApp {
     current_image: Option<Image>,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
-    texture_manager: TextureManager
+    texture_manager: TextureManager,
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
         Self {
-            fp_list: vec![],
-            add_file_name_value: "".to_string(),
-            current_image: None,
+            fp_list: Default::default(),
+            add_file_name_value: Default::default(),
+            current_image: Default::default(),
             texture_manager: Default::default(),
         }
     }
@@ -55,23 +55,22 @@ impl epi::App for TemplateApp {
             add_file_name_value,
             fp_list,
             current_image,
-            texture_manager
+            texture_manager,
         } = self;
         
         egui::TopPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
+
                 egui::menu::menu(ui, "File", |ui| {
                     if ui.button("Open image").clicked() {
                     }
                     
                 });
-                ui.separator();
-                if ui.button("Open image from clipboard").clicked() {
-
-                }
             });
         });
+
+        
 
         // SidePanel contains the fingerprint storage list and an input/button pair to add file paths to the list
         egui::SidePanel::left("side_panel", 300.0).show(ctx, |ui| {
@@ -116,9 +115,21 @@ impl epi::App for TemplateApp {
 
         // Main panel
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Canvas");
+
+            ui.horizontal(|ui| {
+                if ui.button("Paste image from clipboard").clicked() {
+                    *current_image = Image::from_clipboard();
+                    dbg!("Clipboard access attempt");
+                }
+    
+                if ui.button("Clear image").clicked() {
+                    *current_image = None;
+                }
+            });
+            
             if let Some(current_image) = current_image {
                 if let Some(texture_id) = texture_manager.texture(_frame, current_image) {
+                    // TODO Render a thumbnail instead of the full image
                     let size = egui::Vec2::new(current_image.size.0 as f32, current_image.size.1 as f32);
                     ui.image(texture_id, size);
                 }
@@ -164,6 +175,15 @@ struct Image {
     pixels: Vec<egui::Color32>,
 }
 
+impl Clone for Image {
+    fn clone(&self) -> Image {
+        Image {
+            size: self.size,
+            pixels: self.pixels.clone(),
+        }
+    }
+}
+
 impl Image {
     fn decode(bytes: &[u8]) -> Option<Image> {
         use image::GenericImageView;
@@ -181,6 +201,10 @@ impl Image {
     }
 
     fn from_clipboard() -> Option<Image> {
-        todo!()
+        if let Some(data) = get_clipboard(formats::Bitmap).ok() {
+            return Image::decode(&data)
+        } else {
+            None
+        }
     }
 }
