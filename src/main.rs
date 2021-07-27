@@ -1,36 +1,25 @@
 #![allow(dead_code)]
 
-use eframe::epi::{IconData};
+use iced::{Application, Settings};
 use image::imageops::FilterType::Gaussian;
 use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView, Rgb};
 
-mod app;
 mod corner;
 mod fingerprint;
-mod storage;
+mod gui;
 
-fn main() {
+fn main() -> iced::Result {
     // let mut img = resize(&open("./test/succulent_512.png"), 1. / 2.);
     // let corners = corner::harris(&img, 0.1, 5, 50, 1000000.);
     // mark_corners(&mut img, &corners);
     // save(&img);
 
-    // Seems like egui came with a storage backend through config variables
-    // let local_storage = match storage::init("./storage/app_persistence.txt") {
-    //     None => panic!("Failed to open persistent storage"),
-    //     Some(ls) => ls
-    // };
-
-    let gui = app::TemplateApp::default();
-    let mut native_options = eframe::NativeOptions::default();
-    native_options.icon_data = Some(IconData {
-        rgba: open("./icon.png").to_rgba8().into_vec(),
-        width: 128,
-        height: 128,
-    });
-    eframe::run_native(Box::new(gui), native_options);    
+    gui::Gui::run(Settings {
+        ..Settings::default()
+    })
 }
+
 
 fn open(path: &str) -> DynamicImage {
     ImageReader::open(path).unwrap().decode().unwrap()

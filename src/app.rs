@@ -1,5 +1,3 @@
-use eframe::{epi, egui};
-use egui::{Key, Event};
 use clipboard_win::{get_clipboard, formats};
 use serde;
 
