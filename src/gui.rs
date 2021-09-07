@@ -1,21 +1,24 @@
 use iced::{
-    button, executor, keyboard, pane_grid, pick_list, scrollable, text_input, Align, Application,
-    Button, Checkbox, Clipboard, Color, Column, Command, Container, Element, HorizontalAlignment,
-    Length, PaneGrid, Row, Scrollable, Text, TextInput,
+    button, executor, image, keyboard, pane_grid, scrollable, text_input, Align, Application,
+    Button, Clipboard, Color, Column, Command, Container, Element, HorizontalAlignment, Length,
+    Row, Scrollable, Text, TextInput,
 };
 
-use image::DynamicImage;
+use ::image::{DynamicImage, ImageBuffer};
+use clipboard_win::{formats, get_clipboard};
 use rfd::FileDialog;
-use std::fmt;
 use std::path::PathBuf;
 
 pub struct Gui {
     panes: pane_grid::State<Content>,
     files: Vec<PathBuf>,
     selected_file: Option<String>,
-    image: Option<DynamicImage>,
+    image_to_process: Option<DynamicImage>,
+    image: image::Handle,
+    image_viewer: image::viewer::State,
     scroll: scrollable::State,
     select_button_state: button::State,
+    paste_image_button_state: button::State,
 }
 
 #[derive(Debug, Clone)]
@@ -23,6 +26,7 @@ pub enum Message {
     AddFile,
     PasteImage,
     TaskMessage(usize, TaskMessage),
+    FingerprintCurrent
 }
 
 impl Application for Gui {
@@ -38,16 +42,19 @@ impl Application for Gui {
                 panes,
                 files: vec![],
                 selected_file: None,
-                image: None,
+                image_to_process: None,
+                image: image::Handle::from_path("icon.png"),
+                image_viewer: image::viewer::State::new(),
                 scroll: scrollable::State::new(),
-                select_button_state: button::State::new()
+                select_button_state: button::State::new(),
+                paste_image_button_state: button::State::new(),
             },
             Command::none(),
         )
     }
 
     fn title(&self) -> String {
-        String::from("Pane grid - Iced")
+        String::from("Image Fingerprint")
     }
 
     fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
@@ -61,7 +68,17 @@ impl Application for Gui {
                 }
                 println!("Attempted to open file dialog");
             }
-            Message::PasteImage => {}
+            Message::PasteImage => {
+                dbg!("attempting to access clipboard");
+                self.image = if let Some(data) = get_clipboard(formats::Bitmap).ok() {
+                    image::Handle::from_memory(data)
+                } else {
+                    self.image.clone()
+                }
+            }
+            Message::FingerprintCurrent => {
+                todo!()
+            }
             Message::TaskMessage(i, TaskMessage::Delete) => {
                 self.files.remove(i);
             }
@@ -73,8 +90,9 @@ impl Application for Gui {
     fn view(&mut self) -> Element<Message> {
         let Gui {
             files,
-            scroll,
             select_button_state,
+            paste_image_button_state,
+            image_viewer,
             ..
         } = self;
 
@@ -105,22 +123,35 @@ impl Application for Gui {
         };
 
         let file_list = Column::new()
-        .max_width(300)
-        .push(button(
-            select_button_state,
-            "Open file",
-            Message::AddFile,
-            style::Button::Primary,
-        ))
-        .push(files);
+            .max_width(300)
+            .push(button(
+                select_button_state,
+                "Open file",
+                Message::AddFile,
+                style::Button::Primary,
+            ))
+            .push(files);
 
-        let row = Row::new().push(file_list);
+        let image_viewer = Column::new()
+            .max_width(500)
+            .align_items(Align::Center)
+            .push(button(
+                paste_image_button_state,
+                "Paste Image",
+                Message::PasteImage,
+                style::Button::Primary,
+            ))
+            .push(image::Viewer::new(
+                image_viewer,
+                self.image.clone(),
+            ));
+
+        let row = Row::new().push(file_list).push(image_viewer);
 
         Container::new(row)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(5)
-            .center_y()
             .into()
     }
 }

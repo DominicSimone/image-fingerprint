@@ -1360,6 +1360,7 @@ dependencies = [
  "guillotiere",
  "iced_graphics",
  "iced_native",
+ "image",
  "log",
  "raw-window-handle",
  "wgpu",

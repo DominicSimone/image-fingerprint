@@ -8,7 +8,6 @@ pub struct Fingerprint {
  * Using a vector of indices, create a fingerprint that is easily stored and comparable to other fingerprints.
  */
 pub fn fingerprint(image: &DynamicImage, _corners: Vec<usize>) -> String {
-    
     todo!();
 }
 
