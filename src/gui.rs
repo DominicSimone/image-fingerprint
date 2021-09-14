@@ -25,7 +25,7 @@ pub struct Gui {
 pub enum Message {
     AddFile,
     PasteImage,
-    TaskMessage(usize, TaskMessage),
+    Task(usize, TaskMessage),
     FingerprintCurrent
 }
 
@@ -70,7 +70,7 @@ impl Application for Gui {
             }
             Message::PasteImage => {
                 dbg!("attempting to access clipboard");
-                self.image = if let Some(data) = get_clipboard(formats::Bitmap).ok() {
+                self.image = if let Ok(data) = get_clipboard(formats::Bitmap) {
                     image::Handle::from_memory(data)
                 } else {
                     self.image.clone()
@@ -79,7 +79,7 @@ impl Application for Gui {
             Message::FingerprintCurrent => {
                 todo!()
             }
-            Message::TaskMessage(i, TaskMessage::Delete) => {
+            Message::Task(i, TaskMessage::Delete) => {
                 self.files.remove(i);
             }
         }
@@ -110,11 +110,11 @@ impl Application for Gui {
             .style(style)
         };
 
-        let files: Element<_> = if files.len() > 0 {
+        let files: Element<_> = if !files.is_empty() {
             files
                 .iter()
                 .enumerate()
-                .fold(Column::new(), |column, (i, file)| {
+                .fold(Column::new(), |column, (_i, file)| {
                     column.push(message(file.to_str().unwrap_or("No file")))
                 })
                 .into()
@@ -205,11 +205,11 @@ impl Content {
             .style(style)
         };
 
-        let files: Element<_> = if files.len() > 0 {
+        let files: Element<_> = if !files.is_empty() {
             files
                 .iter()
                 .enumerate()
-                .fold(Column::new().spacing(20), |column, (i, file)| {
+                .fold(Column::new().spacing(20), |column, (_i, file)| {
                     column.push(message(file.to_str().unwrap_or("No file")))
                 })
                 .into()

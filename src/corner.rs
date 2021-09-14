@@ -29,7 +29,7 @@ impl PartialOrd for Corner {
 
 impl Ord for Corner {
     fn cmp(&self, other: &Self) -> Ordering {
-        let diff = self.score - &other.score;
+        let diff = self.score - other.score;
         match diff > 0. {
             true => Ordering::Greater,
             false => Ordering::Less,
@@ -47,10 +47,10 @@ fn grads(
     let gray = image.grayscale().blur(gaussian);
     let bytes = gray.as_bytes();
 
-    let mut grads = vec![(0 as f32, 0 as f32, 0 as f32); bytes.len()];
+    let mut grads = vec![(0_f32, 0_f32, 0_f32); bytes.len()];
 
-    let mut grad_x = vec![0 as u8; bytes.len()];
-    let mut grad_y = vec![0 as u8; bytes.len()];
+    let mut grad_x = vec![0_u8; bytes.len()];
+    let mut grad_y = vec![0_u8; bytes.len()];
 
     let width = image.width();
     let height = image.height();
