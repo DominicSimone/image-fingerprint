@@ -10,7 +10,6 @@ use rfd::FileDialog;
 use std::path::PathBuf;
 
 pub struct Gui {
-    panes: pane_grid::State<Content>,
     files: Vec<PathBuf>,
     selected_file: Option<String>,
     image_to_process: Option<DynamicImage>,
@@ -35,11 +34,9 @@ impl Application for Gui {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        let (panes, _) = pane_grid::State::new(Content::new(0));
 
         (
             Gui {
-                panes,
                 files: vec![],
                 selected_file: None,
                 image_to_process: None,
@@ -168,77 +165,6 @@ fn message<'a>(message: &str) -> Element<'a, Message> {
     .height(Length::Units(20))
     .center_y()
     .into()
-}
-
-struct Content {
-    id: usize,
-    scroll: scrollable::State,
-    select_button_state: button::State,
-}
-
-impl Content {
-    fn new(id: usize) -> Self {
-        Content {
-            id,
-            scroll: scrollable::State::new(),
-            select_button_state: button::State::new(),
-        }
-    }
-    fn view(&mut self, files: Vec<PathBuf>) -> Element<Message> {
-        let Content {
-            scroll,
-            select_button_state,
-            ..
-        } = self;
-
-        let button = |state, label, message, style| {
-            Button::new(
-                state,
-                Text::new(label)
-                    .width(Length::Fill)
-                    .horizontal_alignment(HorizontalAlignment::Center)
-                    .size(16),
-            )
-            .width(Length::Fill)
-            .padding(8)
-            .on_press(message)
-            .style(style)
-        };
-
-        let files: Element<_> = if !files.is_empty() {
-            files
-                .iter()
-                .enumerate()
-                .fold(Column::new().spacing(20), |column, (_i, file)| {
-                    column.push(message(file.to_str().unwrap_or("No file")))
-                })
-                .into()
-        } else {
-            message("No fingerprint files specified")
-        };
-
-        let file_list = Column::new().max_width(800).spacing(20).push(files);
-
-        let content = Scrollable::new(scroll)
-            .width(Length::Fill)
-            .spacing(10)
-            .align_items(Align::Center)
-            .push(button(
-                select_button_state,
-                "Open file",
-                Message::AddFile,
-                style::Button::Primary,
-            ));
-
-        let row = Row::new().push(file_list).push(content);
-
-        Container::new(row)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding(5)
-            .center_y()
-            .into()
-    }
 }
 
 #[derive(Debug, Clone)]
