@@ -10,6 +10,9 @@ edition = "2018"
 name = "lib"
 path = "src/lib.rs"
 
+[profile.release]
+opt-level = 3
+
 [dependencies]
 iced = { version = "0.3", features = ["image"]}
 image = "0.23.14"

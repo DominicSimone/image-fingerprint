@@ -1,3 +1,6 @@
 /target
 *.pdf
+*.lnk
+**/*.json
+*.png
 /storage

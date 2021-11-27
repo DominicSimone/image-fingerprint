@@ -1,15 +1,13 @@
-#![allow(dead_code)]
+#![windows_subsystem = "windows"]
 
 use iced::{Application, Settings, window};
-use image::io::Reader as ImageReader;
-use image::{DynamicImage};
+use image;
 
 mod gui;
 
 fn main() -> iced::Result {
-    let icon: Vec<u8> = open("./icon.png").as_rgba8().unwrap().clone().into_raw();
-    
-
+    let image_bytes = include_bytes!("../icon.png");
+    let icon = image::load_from_memory(image_bytes).unwrap().into_rgba8().to_vec();
 
     gui::Gui::run(Settings {
         window: window::Settings {
@@ -19,9 +17,4 @@ fn main() -> iced::Result {
         },
         ..Settings::default()
     })
-}
-
-
-fn open(path: &str) -> DynamicImage {
-    ImageReader::open(path).unwrap().decode().unwrap()
 }

@@ -25,7 +25,7 @@ pub mod ihash {
             .chars()
             .zip(second.chars())
             .fold(0, |acc: usize, (c1, c2)| match c1 == c2 {
-                true => 0,
+                true => acc,
                 false => acc + 1,
             })
     }
@@ -36,21 +36,21 @@ pub mod fgs {
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
     use std::fs::File;
-    use std::io::{Error};
+    use std::io::Error;
 
-    #[derive(Clone, Eq, PartialEq)]
-    struct Comparison<'a> {
+    #[derive(Clone, Eq, PartialEq, Debug)]
+    struct Comparison {
         similarity: usize,
-        path: &'a str,
+        path: String,
     }
 
-    impl PartialOrd for Comparison<'_> {
+    impl PartialOrd for Comparison {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             self.similarity.partial_cmp(&other.similarity)
         }
     }
 
-    impl Ord for Comparison<'_> {
+    impl Ord for Comparison {
         fn cmp(&self, other: &Self) -> Ordering {
             self.similarity.cmp(&other.similarity)
         }
@@ -86,7 +86,10 @@ pub mod fgs {
             if let Some(p) = &self.path {
                 return self.to_file(&p);
             }
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No path set"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No path set",
+            ))
         }
 
         pub fn add_hash(&mut self, hash: &str, path: &str) {
@@ -102,23 +105,35 @@ pub mod fgs {
             None
         }
 
-        pub fn find_many(&self, hash: &str, size: usize) -> Vec<&str> {
+        pub fn find_many(&self, hash: &str, size: usize) -> Vec<String> {
             let mut bheap: BinaryHeap<Comparison> = BinaryHeap::new();
             for (h, p) in self.hashes.iter() {
                 bheap.push(Comparison {
                     similarity: 100 - super::ihash::dist(h, hash),
-                    path: p,
+                    path: String::from(p),
                 })
             }
 
-            bheap.into_iter().take(size).map(|comp| comp.path).collect()
+            let mut result: Vec<String> = vec![];
+            for _ in 0..size {
+                if let Some(comp) = bheap.pop() {
+                    result.push(comp.path);
+                }
+            }
+            result
         }
     }
 }
 
 #[test]
 fn distance_test() {
-    assert_eq!(0, ihash::dist("1001", "1001"));
+    assert_eq!(
+        35,
+        ihash::dist(
+            "0000001100000011000000110010001100000011000110110010101100101111",
+            "0011000000110000001100000010000011110001101100000011000011110000"
+        )
+    );
     assert_eq!(1, ihash::dist("1001", "1000"));
     assert_eq!(4, ihash::dist("0111", "1000"));
 }
@@ -145,6 +160,9 @@ fn hashstore_read_write() {
     let _ = store.to_file(fname);
 
     let store_fs = HashStore::from_file(fname).unwrap_or(HashStore::default());
-    assert_eq!(store_fs.find("1001").unwrap(), "./test/pokemon/nonexistant.png");
+    assert_eq!(
+        store_fs.find("1001").unwrap(),
+        "./test/pokemon/nonexistant.png"
+    );
     let _ = remove_file(fname);
 }
