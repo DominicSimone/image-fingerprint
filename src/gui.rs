@@ -129,9 +129,10 @@ impl Application for Gui {
                                 continue;
                             }
                             let spath = entry.path();
-                            let im = ::image::open(&spath);
-                            let hash = ihash::dhash(&im.unwrap());
-                            self.hashstore.add_hash(&hash, &spath.to_str().unwrap());
+                            if let Ok(image) = ::image::open(&spath) {
+                                let hash = ihash::dhash(&image);
+                                self.hashstore.add_hash(&hash, &spath.to_str().unwrap());
+                            }
                         }
                     }
                 }
