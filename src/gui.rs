@@ -19,19 +19,21 @@ pub struct Gui {
     image_viewer: image::viewer::State,
     select_button_state: button::State,
     paste_image_button_state: button::State,
+    clear_image_button_state: button::State,
     search_button_state: button::State,
     save_image_button_state: button::State,
     hash_directory_button_state: button::State,
+    hash_existing_image_button_state: button::State,
     save_as_hashstore_button_state: button::State,
-    save_hashstore_button_state: button::State,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     SaveImage,
+    ClearImage,
     SaveHashstoreAs,
-    SaveHashstore,
     HashDirectory,
+    HashExistingImage,
     AddFile,
     PasteImage,
     Search,
@@ -54,11 +56,12 @@ impl Application for Gui {
                 image_viewer: image::viewer::State::new(),
                 select_button_state: button::State::new(),
                 paste_image_button_state: button::State::new(),
+                clear_image_button_state: button::State::new(),
                 search_button_state: button::State::new(),
                 save_image_button_state: button::State::new(),
                 hash_directory_button_state: button::State::new(),
+                hash_existing_image_button_state: button::State::new(),
                 save_as_hashstore_button_state: button::State::new(),
-                save_hashstore_button_state: button::State::new(),
             },
             Command::none(),
         )
@@ -87,6 +90,9 @@ impl Application for Gui {
                     self.image.clone()
                 }
             }
+            Message::ClearImage => {
+                self.image = image::Handle::from_memory(include_bytes!("../icon.png").to_vec())
+            }
             Message::SaveImage => {
                 if let Some(path) = FileDialog::new().add_filter("", &["png"]).save_file() {
                     let spath = path.to_str().unwrap();
@@ -94,6 +100,7 @@ impl Application for Gui {
                         Ok(_) => {
                             let hash = ihash::dhash(&self.image_to_process);
                             self.hashstore.add_hash(&hash, &spath);
+                            let _ = self.hashstore.save();
                         }
                         Err(_) => {}
                     }
@@ -109,15 +116,21 @@ impl Application for Gui {
                     self.found_images.push((im, state));
                 }
             }
-            Message::SaveHashstore => {
-                let _ = self.hashstore.save();
-            }
             Message::SaveHashstoreAs => {
                 if let Some(path) = FileDialog::new().add_filter("", &["json"]).save_file() {
                     let spath = path.to_str().unwrap();
                     let _ = self.hashstore.to_file(spath);
                     self.ruimprint_files =
                         Some(RuimprintFile::new(PathBuf::from_str(spath).unwrap()));
+                }
+            }
+            Message::HashExistingImage => {
+                if let Some(path) = FileDialog::new().pick_file() {
+                    if let Ok(image) = ::image::open(&path) {
+                        let hash = ihash::dhash(&image);
+                        self.hashstore.add_hash(&hash, &path.to_str().unwrap());
+                        let _ = self.hashstore.save();
+                    }
                 }
             }
             Message::HashDirectory => {
@@ -134,6 +147,7 @@ impl Application for Gui {
                                 self.hashstore.add_hash(&hash, &spath.to_str().unwrap());
                             }
                         }
+                        let _ = self.hashstore.save();
                     }
                 }
             }
@@ -149,11 +163,12 @@ impl Application for Gui {
             found_paths,
             select_button_state,
             paste_image_button_state,
+            clear_image_button_state,
             search_button_state,
             save_image_button_state,
             hash_directory_button_state,
             save_as_hashstore_button_state,
-            save_hashstore_button_state,
+            hash_existing_image_button_state,
             image_viewer,
             ..
         } = self;
@@ -201,20 +216,20 @@ impl Application for Gui {
             .spacing(5)
             .push(button(
                 hash_directory_button_state,
-                "Fingerprint a Directory",
+                "Fingerprint Directory",
                 Message::HashDirectory,
-                style::Button::Primary,
+                style::Button::Additive,
+            ))
+            .push(button(
+                hash_existing_image_button_state,
+                "Fingerprint Existing Image",
+                Message::HashExistingImage,
+                style::Button::Additive,
             ))
             .push(button(
                 save_as_hashstore_button_state,
                 "Save Fingerprints File As",
                 Message::SaveHashstoreAs,
-                style::Button::Primary,
-            ))
-            .push(button(
-                save_hashstore_button_state,
-                "Save Fingerprints File",
-                Message::SaveHashstore,
                 style::Button::Primary,
             ))
             .push(button(
@@ -230,19 +245,29 @@ impl Application for Gui {
             .padding(10)
             .spacing(5)
             .align_items(Align::Center)
-            .push(button(
-                paste_image_button_state,
-                "Paste Image",
-                Message::PasteImage,
-                style::Button::Primary,
-            ))
-            .push(image::Viewer::new(image_viewer, self.image.clone()))
+            .push(
+                Row::new()
+                    .spacing(5)
+                    .push(button(
+                        clear_image_button_state,
+                        "Clear",
+                        Message::ClearImage,
+                        style::Button::Destructive,
+                    ))
+                    .push(button(
+                        paste_image_button_state,
+                        "Paste Image",
+                        Message::PasteImage,
+                        style::Button::Primary,
+                    )),
+            )
             .push(button(
                 save_image_button_state,
-                "Save Image",
+                "Save Image and Add Fingerprint",
                 Message::SaveImage,
-                style::Button::Primary,
-            ));
+                style::Button::Additive,
+            ))
+            .push(image::Viewer::new(image_viewer, self.image.clone()));
 
         let fingerprint_pane = Column::new()
             .max_width(500)
@@ -330,20 +355,36 @@ mod style {
         0xDA as f32 / 255.0,
     );
 
+    const RED: Color = Color::from_rgb(
+        0xb7 as f32 / 255.0,
+        0x47 as f32 / 255.0,
+        0xb9 as f32 / 255.0,
+    );
+
+    const GREEN: Color = Color::from_rgb(68.0 / 255.0, 162.0 / 255.0, 174.0 / 255.0);
+
     const HOVERED: Color = Color::from_rgb(
         0x67 as f32 / 255.0,
         0x7B as f32 / 255.0,
         0xC4 as f32 / 255.0,
     );
 
+    const HOVERED_RED: Color = Color::from_rgb(147.0 / 255.0, 57.0 / 255.0, 148.0 / 255.0);
+
+    const HOVERED_GREEN: Color = Color::from_rgb(58.0 / 255.0, 139.0 / 255.0, 149.0 / 255.0);
+
     pub enum Button {
         Primary,
+        Additive,
+        Destructive,
     }
 
     impl button::StyleSheet for Button {
         fn active(&self) -> button::Style {
             let (background, text_color) = match self {
                 Button::Primary => (Some(ACTIVE), Color::WHITE),
+                Button::Destructive => (Some(RED), Color::WHITE),
+                Button::Additive => (Some(GREEN), Color::WHITE),
             };
 
             button::Style {
@@ -360,6 +401,8 @@ mod style {
 
             let background = match self {
                 Button::Primary => Some(HOVERED),
+                Button::Destructive => Some(HOVERED_RED),
+                Button::Additive => Some(HOVERED_GREEN),
             };
 
             button::Style {
