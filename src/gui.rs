@@ -1,15 +1,35 @@
 use iced::{
     button, executor, image, Align, Application, Button, Clipboard, Column, Command, Container,
-    Element, HorizontalAlignment, Length, Row, Text, VerticalAlignment,
+    Element, HorizontalAlignment, Length, Row, Text, VerticalAlignment, ProgressBar, pane_grid::Direction, Subscription
 };
 
 use ::image::DynamicImage;
 use clipboard_win::{formats, get_clipboard};
 use lib::{fgs, ihash};
 use rfd::FileDialog;
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, fs::ReadDir};
+
+// mod hash_dir;
+
+#[derive(Copy, Clone, Default)]
+pub struct ProgressData {
+    total: f32,
+    value: f32
+}
+
+pub enum State {
+    InProgress (f32),
+    Idle
+}
+
+pub struct DirectoryData {
+    dir_iter: Option<ReadDir>,
+    state: State
+}
 
 pub struct Gui {
+    directory_data: DirectoryData,
+    progress_data: ProgressData,
     hashstore: fgs::HashStore,
     ruimprint_files: Option<RuimprintFile>,
     found_paths: Vec<String>,
@@ -29,10 +49,13 @@ pub struct Gui {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    StartProgress(f32),
+    IncrementProgress(f32),
     SaveImage,
     ClearImage,
     SaveHashstoreAs,
     HashDirectory,
+    HashDirectoryStep,
     HashExistingImage,
     AddFile,
     PasteImage,
@@ -47,6 +70,11 @@ impl Application for Gui {
     fn new(_flags: ()) -> (Self, Command<Message>) {
         (
             Gui {
+                directory_data: DirectoryData {
+                    dir_iter: None,
+                    state: State::Idle
+                },
+                progress_data: ProgressData::default(),
                 hashstore: fgs::HashStore::new(),
                 ruimprint_files: None,
                 image_to_process: DynamicImage::new_rgb8(2, 2),
@@ -133,9 +161,14 @@ impl Application for Gui {
                     }
                 }
             }
+            // See about splitting this up into finer grained messages so it doesn't block the main thread
             Message::HashDirectory => {
                 if let Some(path) = FileDialog::new().pick_folder() {
                     if let Ok(dir_iter) = std::fs::read_dir(path) {
+                        // self.directory_data = DirectoryData {
+                        //     dir_iter: Some(dir_iter),
+                        //     state: State::InProgress(0.0)
+                        // };
                         for entry in dir_iter {
                             let entry = entry.unwrap();
                             if entry.file_type().unwrap().is_dir() {
@@ -151,6 +184,16 @@ impl Application for Gui {
                     }
                 }
             }
+            Message::HashDirectoryStep => {
+
+            },
+            Message::StartProgress(target) => {
+                self.progress_data.total = target;
+                self.progress_data.value = 0f32;
+            }
+            Message::IncrementProgress(amount) => {
+                self.progress_data.value += amount;
+            }
         }
 
         Command::none()
@@ -158,6 +201,7 @@ impl Application for Gui {
 
     fn view(&mut self) -> Element<Message> {
         let Gui {
+            progress_data,
             ruimprint_files,
             found_images,
             found_paths,
@@ -282,12 +326,18 @@ impl Application for Gui {
             ))
             .push(image_results);
 
+        let progress_bar = ProgressBar::new(0f32..=progress_data.total, progress_data.value);
+
         let row = Row::new()
             .push(file_list)
             .push(image_viewer)
             .push(fingerprint_pane);
 
-        Container::new(row)
+        let col = Column::new()
+            .push(progress_bar)
+            .push(row);
+        
+        Container::new(col)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(5)

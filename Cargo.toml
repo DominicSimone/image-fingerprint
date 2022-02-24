@@ -12,9 +12,12 @@ path = "src/lib.rs"
 
 [profile.release]
 opt-level = 3
+strip = true
 
 [dependencies]
-iced = { version = "0.3", features = ["image"]}
+iced = { version = "0.3", features = ["image", "tokio"]}
+iced_native = "0.4"
+iced_futures = "0.3"
 image = "0.23.14"
 clipboard-win = "4.2.1"
 rfd = "0.4.2"

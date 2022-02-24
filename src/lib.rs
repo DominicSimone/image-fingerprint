@@ -1,33 +1,62 @@
 pub mod ihash {
 
     use image::{imageops::FilterType, DynamicImage};
+    use serde::{Serialize, Deserialize};
 
-    pub fn dhash_with(image: &DynamicImage, filter: FilterType) -> String {
-        let mut hash = String::from("");
-        let gray = image.resize_exact(9, 8, filter).to_luma8();
+    #[derive(Default, Clone, Copy, Serialize, Deserialize)]
+    pub struct IHash {
+        value: u64,
+    }
+
+    impl IHash {
+        pub fn new(hash: u64) -> Self {
+            IHash { value: hash }
+        }
+
+        pub fn from_str(string: &str) -> Self {
+            IHash {
+                value: u64::from_str_radix(string, 16).unwrap(),
+            }
+        }
+
+        pub fn to_str(self) -> String {
+            self.value.to_string()
+        }
+
+        pub fn comp(hash1: &Self, hash2: &Self) -> u64 {
+            let xor = hash1.value ^ hash2.value;
+            xor.count_ones() as u64
+        }
+
+        pub fn dist(self, hash2: &Self) -> u64 {
+            IHash::comp(&self, hash2)
+        }
+    }
+
+    pub fn dhash_with(image: &DynamicImage, filter: FilterType) -> IHash {
+        let mut hash: u64 = 0;
+        // Not sure if resizing first or grayscaling first is faster
+        // let gray = image.resize_exact(9, 8, filter).to_luma8();
+        let gray = DynamicImage::ImageLuma8(image.to_luma8()).resize_exact(9, 8, filter).into_luma8();
+        
         for (_, mut row) in gray.enumerate_rows() {
             if let Some((_, _, mut prev)) = row.next() {
                 for (_, _, pixel) in row {
-                    hash.push(if pixel.0 > prev.0 { '1' } else { '0' });
+                    if pixel.0 > prev.0 {
+                        hash <<= 1;
+                        hash += 1;
+                    } else {
+                        hash <<= 1;
+                    }
                     prev = pixel;
                 }
             }
         }
-        hash
+        IHash::new(hash)
     }
 
-    pub fn dhash(image: &DynamicImage) -> String {
+    pub fn dhash(image: &DynamicImage) -> IHash {
         dhash_with(image, FilterType::Triangle)
-    }
-
-    pub fn dist(first: &str, second: &str) -> usize {
-        first
-            .chars()
-            .zip(second.chars())
-            .fold(0, |acc: usize, (c1, c2)| match c1 == c2 {
-                true => acc,
-                false => acc + 1,
-            })
     }
 }
 
@@ -37,6 +66,8 @@ pub mod fgs {
     use std::collections::BinaryHeap;
     use std::fs::File;
     use std::io::Error;
+
+    use crate::ihash::IHash;
 
     #[derive(Clone, Eq, PartialEq, Debug)]
     struct Comparison {
@@ -58,7 +89,7 @@ pub mod fgs {
 
     #[derive(Default)]
     pub struct HashStore {
-        hashes: Vec<(String, String)>,
+        hashes: Vec<(IHash, String)>,
         path: Option<String>,
     }
 
@@ -69,7 +100,7 @@ pub mod fgs {
 
         pub fn from_file(path: &str) -> Result<Self, Error> {
             let file = File::open(path)?;
-            let data: Vec<(String, String)> = serde_json::from_reader(file)?;
+            let data: Vec<(IHash, String)> = serde_json::from_reader(file)?;
             Ok(Self {
                 hashes: data,
                 path: Some(path.to_string()),
@@ -92,24 +123,24 @@ pub mod fgs {
             ))
         }
 
-        pub fn add_hash(&mut self, hash: &str, path: &str) {
-            self.hashes.push((hash.to_string(), path.to_string()))
+        pub fn add_hash(&mut self, hash: &IHash, path: &str) {
+            self.hashes.push((hash.clone(), path.to_string()))
         }
 
-        pub fn find(&self, hash: &str) -> Option<&str> {
+        pub fn find(&self, hash: &IHash) -> Option<&str> {
             for (h, p) in self.hashes.iter() {
-                if super::ihash::dist(h, hash) == 0 {
+                if hash.dist(h) == 0 {
                     return Some(p);
                 }
             }
             None
         }
 
-        pub fn find_many(&self, hash: &str, size: usize) -> Vec<String> {
+        pub fn find_many(&self, hash: &IHash, size: usize) -> Vec<String> {
             let mut bheap: BinaryHeap<Comparison> = BinaryHeap::new();
             for (h, p) in self.hashes.iter() {
                 bheap.push(Comparison {
-                    similarity: 100 - super::ihash::dist(h, hash),
+                    similarity: 100 - hash.dist(h) as usize,
                     path: String::from(p),
                 })
             }
@@ -127,15 +158,16 @@ pub mod fgs {
 
 #[test]
 fn distance_test() {
+    use ihash::IHash;
     assert_eq!(
         35,
-        ihash::dist(
-            "0000001100000011000000110010001100000011000110110010101100101111",
-            "0011000000110000001100000010000011110001101100000011000011110000"
+        IHash::comp(
+            &IHash::from_str("3030323031b2b2f"),
+            &IHash::from_str("30303020f1b030f0")
         )
     );
-    assert_eq!(1, ihash::dist("1001", "1000"));
-    assert_eq!(4, ihash::dist("0111", "1000"));
+    assert_eq!(1, IHash::comp(&IHash::from_str("9"), &IHash::from_str("8")));
+    assert_eq!(4, IHash::comp(&IHash::from_str("7"), &IHash::from_str("8")));
 }
 
 #[test]
@@ -153,15 +185,16 @@ fn dhash_test() {
 fn hashstore_read_write() {
     use fgs::HashStore;
     use std::fs::remove_file;
+    use ihash::IHash;
 
     let fname = "./test/data.json";
     let mut store = HashStore::default();
-    store.add_hash("1001", "./test/pokemon/nonexistant.png");
+    store.add_hash(&IHash::from_str("9"), "./test/pokemon/nonexistant.png");
     let _ = store.to_file(fname);
 
     let store_fs = HashStore::from_file(fname).unwrap_or(HashStore::default());
     assert_eq!(
-        store_fs.find("1001").unwrap(),
+        store_fs.find(&IHash::from_str("9")).unwrap(),
         "./test/pokemon/nonexistant.png"
     );
     let _ = remove_file(fname);
