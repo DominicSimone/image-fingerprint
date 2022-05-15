@@ -15,7 +15,7 @@ pub mod ihash {
 
         pub fn from_str(string: &str) -> Self {
             IHash {
-                value: u64::from_str_radix(string, 16).unwrap(),
+                value: u64::from_str_radix(string, 10).unwrap(),
             }
         }
 
@@ -136,6 +136,7 @@ pub mod fgs {
             None
         }
 
+        // TODO Implement a 'fast' version using an array, we only care about the top 5 or so results anyways
         pub fn find_many(&self, hash: &IHash, size: usize) -> Vec<String> {
             let mut bheap: BinaryHeap<Comparison> = BinaryHeap::new();
             for (h, p) in self.hashes.iter() {
@@ -162,8 +163,8 @@ fn distance_test() {
     assert_eq!(
         35,
         IHash::comp(
-            &IHash::from_str("3030323031b2b2f"),
-            &IHash::from_str("30303020f1b030f0")
+            &IHash::from_str("217020655954766639"),
+            &IHash::from_str("3472328230754595056")
         )
     );
     assert_eq!(1, IHash::comp(&IHash::from_str("9"), &IHash::from_str("8")));

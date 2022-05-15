@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use iced::{Application, Settings, window};
+use iced::{Settings, pure::Application, window};
 use image;
 
 mod gui;

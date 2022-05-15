@@ -1,30 +1,34 @@
-use iced::{
-    button, executor, image, Align, Application, Button, Clipboard, Column, Command, Container,
-    Element, HorizontalAlignment, Length, Row, Text, VerticalAlignment, ProgressBar, pane_grid::Direction, Subscription
-};
-
 use ::image::DynamicImage;
 use clipboard_win::{formats, get_clipboard};
+use iced::{
+    alignment::{Horizontal, Vertical},
+    executor,
+    pure::{
+        widget::{image, Button, Column, Container, Row, Text},
+        Application, Element,
+    },
+    Alignment, Command, Length,
+};
 use lib::{fgs, ihash};
 use rfd::FileDialog;
-use std::{path::PathBuf, str::FromStr, fs::ReadDir};
+use std::{fs::ReadDir, path::PathBuf, str::FromStr};
 
-// mod hash_dir;
+mod style;
 
 #[derive(Copy, Clone, Default)]
 pub struct ProgressData {
     total: f32,
-    value: f32
+    value: f32,
 }
 
 pub enum State {
-    InProgress (f32),
-    Idle
+    InProgress(f32),
+    Idle,
 }
 
 pub struct DirectoryData {
     dir_iter: Option<ReadDir>,
-    state: State
+    state: State,
 }
 
 pub struct Gui {
@@ -33,18 +37,9 @@ pub struct Gui {
     hashstore: fgs::HashStore,
     ruimprint_files: Option<RuimprintFile>,
     found_paths: Vec<String>,
-    found_images: Vec<(image::Handle, image::viewer::State)>,
+    found_images: Vec<image::Handle>,
     image_to_process: DynamicImage,
     image: image::Handle,
-    image_viewer: image::viewer::State,
-    select_button_state: button::State,
-    paste_image_button_state: button::State,
-    clear_image_button_state: button::State,
-    search_button_state: button::State,
-    save_image_button_state: button::State,
-    hash_directory_button_state: button::State,
-    hash_existing_image_button_state: button::State,
-    save_as_hashstore_button_state: button::State,
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +67,7 @@ impl Application for Gui {
             Gui {
                 directory_data: DirectoryData {
                     dir_iter: None,
-                    state: State::Idle
+                    state: State::Idle,
                 },
                 progress_data: ProgressData::default(),
                 hashstore: fgs::HashStore::new(),
@@ -81,25 +76,16 @@ impl Application for Gui {
                 found_paths: vec![],
                 found_images: vec![],
                 image: image::Handle::from_memory(include_bytes!("../icon.png").to_vec()),
-                image_viewer: image::viewer::State::new(),
-                select_button_state: button::State::new(),
-                paste_image_button_state: button::State::new(),
-                clear_image_button_state: button::State::new(),
-                search_button_state: button::State::new(),
-                save_image_button_state: button::State::new(),
-                hash_directory_button_state: button::State::new(),
-                hash_existing_image_button_state: button::State::new(),
-                save_as_hashstore_button_state: button::State::new(),
             },
             Command::none(),
         )
     }
 
     fn title(&self) -> String {
-        String::from("Ruimprint")
+        String::from("Image Fingerprint")
     }
 
-    fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
+    fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::AddFile => {
                 if let Some(file) = FileDialog::new()
@@ -140,8 +126,7 @@ impl Application for Gui {
                 self.found_images.clear();
                 for path in self.found_paths.iter() {
                     let im = image::Handle::from_path(path);
-                    let state = image::viewer::State::new();
-                    self.found_images.push((im, state));
+                    self.found_images.push(im);
                 }
             }
             Message::SaveHashstoreAs => {
@@ -184,9 +169,7 @@ impl Application for Gui {
                     }
                 }
             }
-            Message::HashDirectoryStep => {
-
-            },
+            Message::HashDirectoryStep => {}
             Message::StartProgress(target) => {
                 self.progress_data.total = target;
                 self.progress_data.value = 0f32;
@@ -199,37 +182,14 @@ impl Application for Gui {
         Command::none()
     }
 
-    fn view(&mut self) -> Element<Message> {
+    fn view(&self) -> Element<Message> {
         let Gui {
             progress_data,
             ruimprint_files,
             found_images,
             found_paths,
-            select_button_state,
-            paste_image_button_state,
-            clear_image_button_state,
-            search_button_state,
-            save_image_button_state,
-            hash_directory_button_state,
-            save_as_hashstore_button_state,
-            hash_existing_image_button_state,
-            image_viewer,
             ..
         } = self;
-
-        let button = |state, label, message, style| {
-            Button::new(
-                state,
-                Text::new(label)
-                    .width(Length::Fill)
-                    .horizontal_alignment(HorizontalAlignment::Center)
-                    .size(16),
-            )
-            .width(Length::Fill)
-            .padding(8)
-            .on_press(message)
-            .style(style)
-        };
 
         let files_element: Element<_> = match ruimprint_files {
             Some(file) => message(file.file.to_str().unwrap_or("No file")),
@@ -238,14 +198,12 @@ impl Application for Gui {
 
         let image_results: Element<_> = if !found_images.is_empty() {
             found_images
-                .iter_mut()
+                .iter()
                 .enumerate()
-                .fold(Column::new(), |col, (i, (image, state))| {
+                .fold(Column::new(), |col, (i, image)| {
                     col.push(
                         Row::new()
-                            .push(
-                                image::Viewer::new(state, image.clone()).height(Length::Units(150)),
-                            )
+                            .push(image::Image::new(image.clone()).height(Length::Units(150)))
                             .push(message(found_paths.get(i).unwrap())),
                     )
                 })
@@ -258,85 +216,75 @@ impl Application for Gui {
             .max_width(300)
             .padding(10)
             .spacing(5)
-            .push(button(
-                hash_directory_button_state,
-                "Fingerprint Directory",
-                Message::HashDirectory,
-                style::Button::Additive,
-            ))
-            .push(button(
-                hash_existing_image_button_state,
-                "Fingerprint Existing Image",
-                Message::HashExistingImage,
-                style::Button::Additive,
-            ))
-            .push(button(
-                save_as_hashstore_button_state,
-                "Save Fingerprints File As",
-                Message::SaveHashstoreAs,
-                style::Button::Primary,
-            ))
-            .push(button(
-                select_button_state,
-                "Open Fingerprints File",
-                Message::AddFile,
-                style::Button::Primary,
-            ))
+            .push(
+                Button::new("Fingerprint Directory")
+                    .on_press(Message::HashDirectory)
+                    .style(style::Button::Additive),
+            )
+            .push(
+                Button::new("Fingerprint Existing Image")
+                    .on_press(Message::HashExistingImage)
+                    .style(style::Button::Additive),
+            )
+            .push(
+                Button::new("Save Fingerprints File As")
+                    .on_press(Message::SaveHashstoreAs)
+                    .style(style::Button::Primary),
+            )
+            .push(
+                Button::new("Open Fingerprints File")
+                    .on_press(Message::AddFile)
+                    .style(style::Button::Primary),
+            )
             .push(files_element);
 
         let image_viewer = Column::new()
             .max_width(500)
             .padding(10)
             .spacing(5)
-            .align_items(Align::Center)
+            .align_items(Alignment::Center)
             .push(
                 Row::new()
                     .spacing(5)
-                    .push(button(
-                        clear_image_button_state,
-                        "Clear",
-                        Message::ClearImage,
-                        style::Button::Destructive,
-                    ))
-                    .push(button(
-                        paste_image_button_state,
-                        "Paste Image",
-                        Message::PasteImage,
-                        style::Button::Primary,
-                    )),
+                    .push(
+                        Button::new("Clear")
+                            .on_press(Message::ClearImage)
+                            .style(style::Button::Destructive),
+                    )
+                    .push(
+                        Button::new("Paste Image")
+                            .on_press(Message::PasteImage)
+                            .style(style::Button::Primary),
+                    ),
             )
-            .push(button(
-                save_image_button_state,
-                "Save Image and Add Fingerprint",
-                Message::SaveImage,
-                style::Button::Additive,
-            ))
-            .push(image::Viewer::new(image_viewer, self.image.clone()));
+            .push(
+                Button::new("Save Image and Add Fingerprint")
+                    .on_press(Message::SaveImage)
+                    .style(style::Button::Additive),
+            )
+            .push(image::Image::new(self.image.clone()));
 
         let fingerprint_pane = Column::new()
             .max_width(500)
             .padding(10)
             .spacing(5)
-            .align_items(Align::Center)
-            .push(button(
-                search_button_state,
-                "Search",
-                Message::Search,
-                style::Button::Primary,
-            ))
+            .align_items(Alignment::Center)
+            .push(
+                Button::new("Search")
+                    .on_press(Message::Search)
+                    .style(style::Button::Primary),
+            )
             .push(image_results);
 
-        let progress_bar = ProgressBar::new(0f32..=progress_data.total, progress_data.value);
+        // let progress_bar = ProgressBar::new(0f32..=progress_data.total, progress_data.value);
 
         let row = Row::new()
             .push(file_list)
             .push(image_viewer)
             .push(fingerprint_pane);
 
-        let col = Column::new()
-            .push(progress_bar)
-            .push(row);
-        
+        let col = Column::new().push(row);
+
         Container::new(col)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -350,8 +298,8 @@ fn message<'a>(message: &str) -> Element<'a, Message> {
         Text::new(message)
             .width(Length::Fill)
             .size(16)
-            .vertical_alignment(VerticalAlignment::Top)
-            .horizontal_alignment(HorizontalAlignment::Center)
+            .vertical_alignment(Vertical::Top)
+            .horizontal_alignment(Horizontal::Center)
             .color([0.5, 0.5, 0.5]),
     )
     .width(Length::Fill)
@@ -368,18 +316,12 @@ struct RuimprintFile {
 
 #[derive(Debug, Clone)]
 pub enum RuimprintFileState {
-    Idle {
-        delete_button: button::State,
-        mark_button: button::State,
-    },
+    Idle,
 }
 
 impl Default for RuimprintFileState {
     fn default() -> Self {
-        RuimprintFileState::Idle {
-            delete_button: button::State::new(),
-            mark_button: button::State::new(),
-        }
+        RuimprintFileState::Idle
     }
 }
 
@@ -388,77 +330,8 @@ impl RuimprintFile {
         RuimprintFile {
             marked: false,
             file,
-            state: RuimprintFileState::Idle {
-                delete_button: button::State::new(),
-                mark_button: button::State::new(),
-            },
+            state: RuimprintFileState::Idle,
         }
     }
 }
 
-mod style {
-    use iced::{button, Background, Color, Vector};
-
-    const ACTIVE: Color = Color::from_rgb(
-        0x72 as f32 / 255.0,
-        0x89 as f32 / 255.0,
-        0xDA as f32 / 255.0,
-    );
-
-    const RED: Color = Color::from_rgb(
-        0xb7 as f32 / 255.0,
-        0x47 as f32 / 255.0,
-        0xb9 as f32 / 255.0,
-    );
-
-    const GREEN: Color = Color::from_rgb(68.0 / 255.0, 162.0 / 255.0, 174.0 / 255.0);
-
-    const HOVERED: Color = Color::from_rgb(
-        0x67 as f32 / 255.0,
-        0x7B as f32 / 255.0,
-        0xC4 as f32 / 255.0,
-    );
-
-    const HOVERED_RED: Color = Color::from_rgb(147.0 / 255.0, 57.0 / 255.0, 148.0 / 255.0);
-
-    const HOVERED_GREEN: Color = Color::from_rgb(58.0 / 255.0, 139.0 / 255.0, 149.0 / 255.0);
-
-    pub enum Button {
-        Primary,
-        Additive,
-        Destructive,
-    }
-
-    impl button::StyleSheet for Button {
-        fn active(&self) -> button::Style {
-            let (background, text_color) = match self {
-                Button::Primary => (Some(ACTIVE), Color::WHITE),
-                Button::Destructive => (Some(RED), Color::WHITE),
-                Button::Additive => (Some(GREEN), Color::WHITE),
-            };
-
-            button::Style {
-                text_color,
-                background: background.map(Background::Color),
-                border_radius: 5.0,
-                shadow_offset: Vector::new(0.0, 0.0),
-                ..button::Style::default()
-            }
-        }
-
-        fn hovered(&self) -> button::Style {
-            let active = self.active();
-
-            let background = match self {
-                Button::Primary => Some(HOVERED),
-                Button::Destructive => Some(HOVERED_RED),
-                Button::Additive => Some(HOVERED_GREEN),
-            };
-
-            button::Style {
-                background: background.map(Background::Color),
-                ..active
-            }
-        }
-    }
-}
