@@ -7,7 +7,7 @@ use iced::{
         widget::{image, Button, Column, Container, Row, Text},
         Application, Element,
     },
-    Alignment, Command, Length,
+    Alignment::{Center}, Command, Length, ProgressBar
 };
 use lib::{fgs, ihash};
 use rfd::FileDialog;
@@ -17,29 +17,19 @@ mod style;
 
 #[derive(Copy, Clone, Default)]
 pub struct ProgressData {
+    visible: bool,
     total: f32,
     value: f32,
 }
 
-pub enum State {
-    InProgress(f32),
-    Idle,
-}
-
-pub struct DirectoryData {
-    dir_iter: Option<ReadDir>,
-    state: State,
-}
-
 pub struct Gui {
-    directory_data: DirectoryData,
     progress_data: ProgressData,
     hashstore: fgs::HashStore,
-    ruimprint_files: Option<RuimprintFile>,
+    fingerprint_store_path: Option<PathBuf>,
     found_paths: Vec<String>,
     found_images: Vec<image::Handle>,
     image_to_process: DynamicImage,
-    image: image::Handle,
+    pasted_image: image::Handle,
 }
 
 #[derive(Debug, Clone)]
@@ -58,24 +48,20 @@ pub enum Message {
 }
 
 impl Application for Gui {
-    type Message = Message;
     type Executor = executor::Default;
+    type Message = Message;
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
         (
             Gui {
-                directory_data: DirectoryData {
-                    dir_iter: None,
-                    state: State::Idle,
-                },
                 progress_data: ProgressData::default(),
                 hashstore: fgs::HashStore::new(),
-                ruimprint_files: None,
+                fingerprint_store_path: None,
                 image_to_process: DynamicImage::new_rgb8(2, 2),
                 found_paths: vec![],
                 found_images: vec![],
-                image: image::Handle::from_memory(include_bytes!("../icon.png").to_vec()),
+                pasted_image: image::Handle::from_memory(include_bytes!("../icon.png").to_vec()),
             },
             Command::none(),
         )
@@ -93,19 +79,20 @@ impl Application for Gui {
                     .pick_file()
                 {
                     self.hashstore = fgs::HashStore::from_file(file.to_str().unwrap()).unwrap();
-                    self.ruimprint_files = Some(RuimprintFile::new(file))
+                    self.fingerprint_store_path = Some(file)
                 }
             }
             Message::PasteImage => {
-                self.image = if let Ok(data) = get_clipboard(formats::Bitmap) {
+                self.pasted_image = if let Ok(data) = get_clipboard(formats::Bitmap) {
                     self.image_to_process = ::image::load_from_memory(&data).unwrap();
                     image::Handle::from_memory(data)
                 } else {
-                    self.image.clone()
+                    self.pasted_image.clone()
                 }
             }
             Message::ClearImage => {
-                self.image = image::Handle::from_memory(include_bytes!("../icon.png").to_vec())
+                self.pasted_image =
+                    image::Handle::from_memory(include_bytes!("../icon.png").to_vec())
             }
             Message::SaveImage => {
                 if let Some(path) = FileDialog::new().add_filter("", &["png"]).save_file() {
@@ -133,8 +120,7 @@ impl Application for Gui {
                 if let Some(path) = FileDialog::new().add_filter("", &["json"]).save_file() {
                     let spath = path.to_str().unwrap();
                     let _ = self.hashstore.to_file(spath);
-                    self.ruimprint_files =
-                        Some(RuimprintFile::new(PathBuf::from_str(spath).unwrap()));
+                    self.fingerprint_store_path = Some(PathBuf::from_str(spath).unwrap());
                 }
             }
             Message::HashExistingImage => {
@@ -185,14 +171,14 @@ impl Application for Gui {
     fn view(&self) -> Element<Message> {
         let Gui {
             progress_data,
-            ruimprint_files,
+            fingerprint_store_path,
             found_images,
             found_paths,
             ..
         } = self;
 
-        let files_element: Element<_> = match ruimprint_files {
-            Some(file) => message(file.file.to_str().unwrap_or("No file")),
+        let active_store_filename: Element<_> = match fingerprint_store_path {
+            Some(file) => message(file.to_str().unwrap_or("No file")),
             None => message("No fingerprint file specified"),
         };
 
@@ -212,78 +198,90 @@ impl Application for Gui {
             message("No images found")
         };
 
-        let file_list = Column::new()
+        let file_controls_list = Column::new()
             .max_width(300)
             .padding(10)
             .spacing(5)
+            .align_items(Center)
             .push(
-                Button::new("Fingerprint Directory")
+                Button::new(button_text("Fingerprint Directory Contents"))
                     .on_press(Message::HashDirectory)
-                    .style(style::Button::Additive),
+                    .style(style::Button::Additive)
+                    .width(Length::Fill),
             )
             .push(
-                Button::new("Fingerprint Existing Image")
+                Button::new(button_text("Fingerprint Existing Image"))
                     .on_press(Message::HashExistingImage)
-                    .style(style::Button::Additive),
+                    .style(style::Button::Additive)
+                    .width(Length::Fill),
             )
             .push(
-                Button::new("Save Fingerprints File As")
+                Button::new(button_text("Save Fingerprints File As"))
                     .on_press(Message::SaveHashstoreAs)
-                    .style(style::Button::Primary),
+                    .style(style::Button::Primary)
+                    .width(Length::Fill),
             )
             .push(
-                Button::new("Open Fingerprints File")
+                Button::new(button_text("Open Fingerprints File"))
                     .on_press(Message::AddFile)
-                    .style(style::Button::Primary),
+                    .style(style::Button::Primary)
+                    .width(Length::Fill),
             )
-            .push(files_element);
+            .push(active_store_filename);
 
         let image_viewer = Column::new()
             .max_width(500)
             .padding(10)
             .spacing(5)
-            .align_items(Alignment::Center)
+            .align_items(Center)
             .push(
                 Row::new()
                     .spacing(5)
                     .push(
-                        Button::new("Clear")
+                        Button::new(button_text("Clear"))
                             .on_press(Message::ClearImage)
-                            .style(style::Button::Destructive),
+                            .style(style::Button::Destructive)
+                            .width(Length::Fill),
                     )
                     .push(
-                        Button::new("Paste Image")
+                        Button::new(button_text("Paste Image"))
                             .on_press(Message::PasteImage)
-                            .style(style::Button::Primary),
+                            .style(style::Button::Primary)
+                            .width(Length::Fill),
                     ),
             )
             .push(
-                Button::new("Save Image and Add Fingerprint")
+                Button::new(button_text("Save Image and Add Fingerprint"))
                     .on_press(Message::SaveImage)
-                    .style(style::Button::Additive),
+                    .style(style::Button::Additive)
+                    .width(Length::Fill),
             )
-            .push(image::Image::new(self.image.clone()));
+            .push(image::Image::new(self.pasted_image.clone()));
 
         let fingerprint_pane = Column::new()
             .max_width(500)
             .padding(10)
             .spacing(5)
-            .align_items(Alignment::Center)
+            .align_items(Center)
             .push(
-                Button::new("Search")
+                Button::new(button_text("Search"))
                     .on_press(Message::Search)
-                    .style(style::Button::Primary),
+                    .style(style::Button::Primary)
+                    .width(Length::Fill),
             )
             .push(image_results);
 
-        // let progress_bar = ProgressBar::new(0f32..=progress_data.total, progress_data.value);
+        let progress_bar = ProgressBar::new(0f32..=progress_data.total, progress_data.value);
 
         let row = Row::new()
-            .push(file_list)
+            .push(file_controls_list)
             .push(image_viewer)
             .push(fingerprint_pane);
 
-        let col = Column::new().push(row);
+        let col = match progress_data.visible {
+            true => Column::new().push(progress_bar).push(row),
+            false => Column::new().push(row),
+        };
 
         Container::new(col)
             .width(Length::Fill)
@@ -307,31 +305,16 @@ fn message<'a>(message: &str) -> Element<'a, Message> {
     .into()
 }
 
-#[derive(Debug, Clone)]
-struct RuimprintFile {
-    file: PathBuf,
-    marked: bool,
-    state: RuimprintFileState,
+fn button_text<'a>(message: &str) -> Element<'a, Message> {
+    Container::new(
+        Text::new(message)
+            .width(Length::Fill)
+            .size(20)
+            .vertical_alignment(Vertical::Top)
+            .horizontal_alignment(Horizontal::Center)
+            .color([1_f32, 1_f32, 1_f32]),
+    )
+    .width(Length::Fill)
+    .center_x()
+    .into()
 }
-
-#[derive(Debug, Clone)]
-pub enum RuimprintFileState {
-    Idle,
-}
-
-impl Default for RuimprintFileState {
-    fn default() -> Self {
-        RuimprintFileState::Idle
-    }
-}
-
-impl RuimprintFile {
-    fn new(file: PathBuf) -> Self {
-        RuimprintFile {
-            marked: false,
-            file,
-            state: RuimprintFileState::Idle,
-        }
-    }
-}
-
