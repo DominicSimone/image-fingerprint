@@ -1,4 +1,4 @@
-use ::image::DynamicImage;
+use ::image::{DynamicImage, imageops::FilterType};
 use clipboard_win::{formats, get_clipboard};
 use iced::{
     alignment::{Horizontal, Vertical},
@@ -7,9 +7,10 @@ use iced::{
         widget::{image, Button, Column, Container, Row, Text},
         Application, Element,
     },
-    Alignment::{Center}, Command, Length, ProgressBar
+    Alignment::Center,
+    Command, Length, ProgressBar,
 };
-use lib::{fgs, ihash};
+use lib::{fgs, ihash::{dhash, dhash_rotations}};
 use rfd::FileDialog;
 use std::{fs::ReadDir, path::PathBuf, str::FromStr};
 
@@ -68,14 +69,14 @@ impl Application for Gui {
     }
 
     fn title(&self) -> String {
-        String::from("Image Fingerprint")
+        String::from("Image Fingerprint v1.1")
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::AddFile => {
                 if let Some(file) = FileDialog::new()
-                    .add_filter("fingerprint storage", &["json"])
+                    .add_filter("Hash storage", &["json"])
                     .pick_file()
                 {
                     self.hashstore = fgs::HashStore::from_file(file.to_str().unwrap()).unwrap();
@@ -99,7 +100,7 @@ impl Application for Gui {
                     let spath = path.to_str().unwrap();
                     match self.image_to_process.save(spath) {
                         Ok(_) => {
-                            let hash = ihash::dhash(&self.image_to_process);
+                            let hash = dhash(&self.image_to_process);
                             self.hashstore.add_hash(&hash, &spath);
                             let _ = self.hashstore.save();
                         }
@@ -108,8 +109,8 @@ impl Application for Gui {
                 }
             }
             Message::Search => {
-                let hash = ihash::dhash(&self.image_to_process);
-                self.found_paths = self.hashstore.find_many(&hash, 5);
+                let hashes = dhash_rotations(&self.image_to_process, FilterType::Triangle);
+                self.found_paths = self.hashstore.find_many(&hashes, 5);
                 self.found_images.clear();
                 for path in self.found_paths.iter() {
                     let im = image::Handle::from_path(path);
@@ -124,15 +125,17 @@ impl Application for Gui {
                 }
             }
             Message::HashExistingImage => {
-                if let Some(path) = FileDialog::new().pick_file() {
-                    if let Ok(image) = ::image::open(&path) {
-                        let hash = ihash::dhash(&image);
-                        self.hashstore.add_hash(&hash, &path.to_str().unwrap());
-                        let _ = self.hashstore.save();
+                if let Some(paths) = FileDialog::new().pick_files() {
+                    for path in paths {
+                        if let Ok(image) = ::image::open(&path) {
+                            let hash = dhash(&image);
+                            self.hashstore.add_hash(&hash, &path.to_str().unwrap());
+                        }
                     }
+                    let _ = self.hashstore.save();
                 }
             }
-            // See about splitting this up into finer grained messages so it doesn't block the main thread
+            // TODO Investigate ways to do this in the background / not block main thread + progress bar
             Message::HashDirectory => {
                 if let Some(path) = FileDialog::new().pick_folder() {
                     if let Ok(dir_iter) = std::fs::read_dir(path) {
@@ -147,7 +150,7 @@ impl Application for Gui {
                             }
                             let spath = entry.path();
                             if let Ok(image) = ::image::open(&spath) {
-                                let hash = ihash::dhash(&image);
+                                let hash = dhash(&image);
                                 self.hashstore.add_hash(&hash, &spath.to_str().unwrap());
                             }
                         }

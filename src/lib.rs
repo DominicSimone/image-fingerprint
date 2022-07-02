@@ -1,7 +1,11 @@
 pub mod ihash {
 
-    use image::{imageops::FilterType, DynamicImage};
+    use image::{imageops::FilterType, DynamicImage, GrayImage};
     use serde::{Serialize, Deserialize};
+
+    pub enum HashMethod {
+        DHashRotations
+    }
 
     #[derive(Default, Clone, Copy, Serialize, Deserialize)]
     pub struct IHash {
@@ -23,23 +27,21 @@ pub mod ihash {
             self.value.to_string()
         }
 
-        pub fn comp(hash1: &Self, hash2: &Self) -> u64 {
-            let xor = hash1.value ^ hash2.value;
-            xor.count_ones() as u64
+        // Also checks mirrored hash
+        pub fn comp(hash1: &Self, hash2: &Self) -> u32 {
+            let xor: u64 = hash1.value ^ hash2.value;
+            let xor_inv: u64 = hash1.value ^ u64::MAX ^ hash2.value;
+            u32::min(xor.count_ones(), xor_inv.count_ones())
         }
 
-        pub fn dist(self, hash2: &Self) -> u64 {
+        pub fn dist(self, hash2: &Self) -> u32 {
             IHash::comp(&self, hash2)
         }
     }
 
-    pub fn dhash_with(image: &DynamicImage, filter: FilterType) -> IHash {
+    pub fn dhash_small_luma(small: &GrayImage) -> IHash {
         let mut hash: u64 = 0;
-        // Not sure if resizing first or grayscaling first is faster
-        // let gray = image.resize_exact(9, 8, filter).to_luma8();
-        let gray = DynamicImage::ImageLuma8(image.to_luma8()).resize_exact(9, 8, filter).into_luma8();
-        
-        for (_, mut row) in gray.enumerate_rows() {
+        for (_, mut row) in small.enumerate_rows() {
             if let Some((_, _, mut prev)) = row.next() {
                 for (_, _, pixel) in row {
                     if pixel.0 > prev.0 {
@@ -55,8 +57,26 @@ pub mod ihash {
         IHash::new(hash)
     }
 
+    pub fn dhash_rotations(image: &DynamicImage, filter: FilterType) -> Vec<IHash> {
+        let mut vec: Vec<IHash> = vec![];
+        let gray = DynamicImage::ImageLuma8(image.to_luma8());
+        vec.push(dhash_small_luma(&gray.resize_exact(9, 8, filter).into_luma8()));
+        for _ in 0..=2 {
+            gray.rotate90();
+            vec.push(dhash_small_luma(&gray.resize_exact(9, 8, filter).into_luma8()));
+        }
+        vec
+    }
+
+    pub fn dhash_once(image: &DynamicImage, filter: FilterType) -> IHash {
+        // Not sure if resizing first or grayscaling first is faster
+        // let gray = image.resize_exact(9, 8, filter).to_luma8();
+        let gray = DynamicImage::ImageLuma8(image.to_luma8()).resize_exact(9, 8, filter).into_luma8();
+        dhash_small_luma(&gray)
+    }
+
     pub fn dhash(image: &DynamicImage) -> IHash {
-        dhash_with(image, FilterType::Triangle)
+        dhash_once(image, FilterType::Triangle)
     }
 }
 
@@ -136,8 +156,31 @@ pub mod fgs {
             None
         }
 
-        // TODO Implement a 'fast' version using an array, we only care about the top 5 or so results anyways
-        pub fn find_many(&self, hash: &IHash, size: usize) -> Vec<String> {
+        pub fn find_many(&self, hash_list: &Vec<IHash>, size: usize) -> Vec<String> {
+            let mut bheap: BinaryHeap<Comparison> = BinaryHeap::new();
+            for (h, p) in self.hashes.iter() {
+                let mut smallest = 100 - hash_list[0].dist(h);
+                for hash in hash_list {
+                    let d = 100 - hash.dist(h);
+                    if d < smallest {
+                        smallest = d;
+                    }
+                }
+                bheap.push(Comparison {
+                    similarity: smallest as usize,
+                    path: String::from(p),
+                })
+            }
+            let mut result: Vec<String> = vec![];
+            for _ in 0..size {
+                if let Some(comp) = bheap.pop() {
+                    result.push(comp.path);
+                }
+            }
+            result
+        }
+
+        pub fn find_heap(&self, hash: &IHash, size: usize) -> Vec<String> {
             let mut bheap: BinaryHeap<Comparison> = BinaryHeap::new();
             for (h, p) in self.hashes.iter() {
                 bheap.push(Comparison {
@@ -161,7 +204,7 @@ pub mod fgs {
 fn distance_test() {
     use ihash::IHash;
     assert_eq!(
-        35,
+        29,
         IHash::comp(
             &IHash::from_str("217020655954766639"),
             &IHash::from_str("3472328230754595056")
