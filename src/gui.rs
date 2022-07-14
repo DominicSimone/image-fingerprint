@@ -12,9 +12,10 @@ use iced::{
 };
 use lib::{fgs, ihash::{dhash, dhash_rotations}};
 use rfd::FileDialog;
-use std::{fs::ReadDir, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 mod style;
+mod hash_dir;
 
 #[derive(Copy, Clone, Default)]
 pub struct ProgressData {
@@ -135,14 +136,9 @@ impl Application for Gui {
                     let _ = self.hashstore.save();
                 }
             }
-            // TODO Investigate ways to do this in the background / not block main thread + progress bar
             Message::HashDirectory => {
                 if let Some(path) = FileDialog::new().pick_folder() {
                     if let Ok(dir_iter) = std::fs::read_dir(path) {
-                        // self.directory_data = DirectoryData {
-                        //     dir_iter: Some(dir_iter),
-                        //     state: State::InProgress(0.0)
-                        // };
                         for entry in dir_iter {
                             let entry = entry.unwrap();
                             if entry.file_type().unwrap().is_dir() {
