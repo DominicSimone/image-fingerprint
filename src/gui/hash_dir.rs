@@ -1,3 +1,4 @@
+// use iced_native::subscription;
 use lib::ihash::{dhash, IHash};
 use std::{
     hash::Hash,
@@ -6,28 +7,14 @@ use std::{
 };
 
 // Just a little utility function
-// pub fn file<I: 'static + Hash + Copy + Send + Sync, T: ToString>(
+// pub fn file<I: 'static + Hash + Copy + Send + Sync>(
 //     id: I,
-//     url: T,
+//     paths: Vec<PathBuf>,
 // ) -> iced::Subscription<(I, Progress)> {
-//     subscription::unfold(id, State::Ready(url.to_string()), move |state| {
-//         download(id, state)
+//     subscription::unfold(id, State::Ready(paths), move |state| {
+//         multihash(id, state)
 //     })
 // }
-
-pub fn hash_dir(path: PathBuf) -> Response<(IHash, PathBuf)> {
-    let mut files: Vec<PathBuf> = vec![];
-    if let Ok(dir_iter) = std::fs::read_dir(path) {
-        for entry in dir_iter {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                continue;
-            }
-            files.push(entry.path());
-        }
-    }
-    hash_files(files)
-}
 
 pub fn hash_files(paths: Vec<PathBuf>) -> Response<(IHash, PathBuf)> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -49,15 +36,15 @@ pub fn hash_files(paths: Vec<PathBuf>) -> Response<(IHash, PathBuf)> {
 }
 
 #[derive(Debug, Hash, Clone)]
-pub struct DirectoryHash<I> {
+pub struct MultiHash<I> {
     id: I,
-    path: PathBuf,
+    paths: Vec<PathBuf>,
 }
 
-async fn hash_directory<I: Copy>(id: I, state: State) -> (Option<(I, Progress)>, State) {
+async fn multihash<I: Copy>(id: I, state: State) -> (Option<(I, Progress)>, State) {
     match state {
-        State::Ready(path) => {
-            let response = hash_dir(path);
+        State::Ready(paths) => {
+            let response = hash_files(paths);
 
             let total = response.content_length();
             (
@@ -141,7 +128,7 @@ impl<T: Clone> Response<T> {
 }
 
 pub enum State {
-    Ready(PathBuf),
+    Ready(Vec<PathBuf>),
     Hashing {
         response: Response<(IHash, PathBuf)>,
         total: usize,

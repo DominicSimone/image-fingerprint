@@ -17,8 +17,7 @@ strip = true
 
 [dependencies]
 iced = { version = "0.4", features = ["image", "tokio", "pure"]}
-# iced_native = "0.4"
-# iced_futures = "0.4"
+# iced_native = "0.5"
 image = "0.23.14"
 clipboard-win = "4.4.1"
 rfd = "0.8.2"

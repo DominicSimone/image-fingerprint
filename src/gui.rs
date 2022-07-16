@@ -1,4 +1,4 @@
-use ::image::{DynamicImage, imageops::FilterType};
+use ::image::{imageops::FilterType, DynamicImage};
 use clipboard_win::{formats, get_clipboard};
 use iced::{
     alignment::{Horizontal, Vertical},
@@ -7,46 +7,41 @@ use iced::{
         widget::{image, Button, Column, Container, Row, Text},
         Application, Element,
     },
-    Alignment::Center,
-    Command, Length, ProgressBar,
+    Alignment::{self, Center},
+    Command, Length, ProgressBar, Subscription,
 };
-use lib::{fgs, ihash::{dhash, dhash_rotations}};
+use lib::{
+    fgs,
+    ihash::{dhash, dhash_rotations},
+};
 use rfd::FileDialog;
 use std::{path::PathBuf, str::FromStr};
 
+// mod hash_dir;
 mod style;
-mod hash_dir;
-
-#[derive(Copy, Clone, Default)]
-pub struct ProgressData {
-    visible: bool,
-    total: f32,
-    value: f32,
-}
 
 pub struct Gui {
-    progress_data: ProgressData,
     hashstore: fgs::HashStore,
     fingerprint_store_path: Option<PathBuf>,
     found_paths: Vec<String>,
     found_images: Vec<image::Handle>,
     image_to_process: DynamicImage,
     pasted_image: image::Handle,
+    // multihashes: Vec<MultiHash>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    StartProgress(f32),
-    IncrementProgress(f32),
     SaveImage,
     ClearImage,
     SaveHashstoreAs,
     HashDirectory,
-    HashDirectoryStep,
     HashExistingImage,
     AddFile,
     PasteImage,
     Search,
+    MultiHash((usize, Vec<PathBuf>)),
+    // MutliHashProgressed((usize, hash_dir::Progress)),
 }
 
 impl Application for Gui {
@@ -57,13 +52,13 @@ impl Application for Gui {
     fn new(_flags: ()) -> (Self, Command<Message>) {
         (
             Gui {
-                progress_data: ProgressData::default(),
                 hashstore: fgs::HashStore::new(),
                 fingerprint_store_path: None,
                 image_to_process: DynamicImage::new_rgb8(2, 2),
                 found_paths: vec![],
                 found_images: vec![],
                 pasted_image: image::Handle::from_memory(include_bytes!("../icon.png").to_vec()),
+                // multihashes: vec![],
             },
             Command::none(),
         )
@@ -71,6 +66,11 @@ impl Application for Gui {
 
     fn title(&self) -> String {
         String::from("Image Fingerprint v1.1")
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        // Subscription::batch(self.multihashes.iter().map(Download::subscription))
+        todo!()
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -154,14 +154,16 @@ impl Application for Gui {
                     }
                 }
             }
-            Message::HashDirectoryStep => {}
-            Message::StartProgress(target) => {
-                self.progress_data.total = target;
-                self.progress_data.value = 0f32;
-            }
-            Message::IncrementProgress(amount) => {
-                self.progress_data.value += amount;
-            }
+            Message::MultiHash((id, vec)) => {
+                // if let Some(multihash) = self.multihashes.get_mut(id) {
+                //     // TODO this needs to deviate from the example code
+                // }
+            },
+            // Message::MutliHashProgressed((id, progress)) => {
+                // if let Some(multihash) = self.multihashes.iter_mut().find(|multihash| multihash.id == id) {
+                //     multihash.progress(progress)
+                // }
+            // },
         }
 
         Command::none()
@@ -169,7 +171,6 @@ impl Application for Gui {
 
     fn view(&self) -> Element<Message> {
         let Gui {
-            progress_data,
             fingerprint_store_path,
             found_images,
             found_paths,
@@ -270,25 +271,106 @@ impl Application for Gui {
             )
             .push(image_results);
 
-        let progress_bar = ProgressBar::new(0f32..=progress_data.total, progress_data.value);
-
         let row = Row::new()
             .push(file_controls_list)
             .push(image_viewer)
             .push(fingerprint_pane);
 
-        let col = match progress_data.visible {
-            true => Column::new().push(progress_bar).push(row),
-            false => Column::new().push(row),
-        };
-
-        Container::new(col)
+        Container::new(row)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(5)
             .into()
     }
 }
+
+// #[derive(Debug)]
+// struct MultiHash {
+//     id: usize,
+//     state: State,
+//     paths: Vec<PathBuf>,
+// }
+
+// #[derive(Debug)]
+// enum State {
+//     Idle,
+//     Hashing { progress: f32 },
+//     Finished,
+//     Errored,
+// }
+
+// impl MultiHash {
+//     pub fn new(id: usize) -> Self {
+//         MultiHash {
+//             id,
+//             state: State::Idle,
+//             paths: vec![],
+//         }
+//     }
+
+//     pub fn start(&mut self) {
+//         match self.state {
+//             State::Idle { .. } | State::Finished { .. } | State::Errored { .. } => {
+//                 self.state = State::Hashing { progress: 0.0 };
+//             }
+//             _ => {}
+//         }
+//     }
+
+//     pub fn progress(&mut self, new_progress: hash_dir::Progress) {
+//         match &mut self.state {
+//             State::Hashing { progress } => match new_progress {
+//                 hash_dir::Progress::Started => {
+//                     *progress = 0.0;
+//                 }
+//                 hash_dir::Progress::Advanced(percentage) => {
+//                     *progress = percentage;
+//                 }
+//                 hash_dir::Progress::Finished => self.state = State::Finished,
+//                 hash_dir::Progress::Errored => self.state = State::Errored,
+//             },
+//             _ => {}
+//         }
+//     }
+
+//     pub fn subscription(&self) -> Subscription<Message> {
+//         match self.state {
+//             State::Hashing { .. } => {
+//                 hash_dir::file(self.id, self.paths.clone())
+//                     .map(Message::MutliHashProgressed)
+//             }
+//             _ => Subscription::none(),
+//         }
+//     }
+
+//     pub fn view(&mut self) -> Element<Message> {
+//         let current_progress = match &self.state {
+//             State::Idle { .. } => 0.0,
+//             State::Hashing { progress } => *progress,
+//             State::Finished { .. } => 100.0,
+//             State::Errored { .. } => 0.0,
+//         };
+
+//         let progress_bar = ProgressBar::new(0.0..=100.0, current_progress);
+
+//         let control: Element<_> = match &mut self.state {
+//             State::Idle => Text::new("Idle").into(),
+//             State::Finished => Text::new("Finished").into(),
+//             State::Hashing { .. } => {
+//                 Text::new(format!("Hashing images... {:.2}%", current_progress)).into()
+//             }
+//             State::Errored => Text::new("Errored").into(),
+//         };
+
+//         Column::new()
+//             .spacing(10)
+//             .padding(10)
+//             .align_items(Alignment::Center)
+//             .push(progress_bar)
+//             .push(control)
+//             .into()
+//     }
+// }
 
 fn message<'a>(message: &str) -> Element<'a, Message> {
     Container::new(
