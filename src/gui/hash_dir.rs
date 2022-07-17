@@ -1,4 +1,4 @@
-// use iced_native::subscription;
+use iced_native::subscription;
 use lib::ihash::{dhash, IHash};
 use std::{
     hash::Hash,
@@ -6,17 +6,19 @@ use std::{
     sync::mpsc::{Receiver, TryRecvError},
 };
 
-// Just a little utility function
-// pub fn file<I: 'static + Hash + Copy + Send + Sync>(
-//     id: I,
-//     paths: Vec<PathBuf>,
-// ) -> iced::Subscription<(I, Progress)> {
-//     subscription::unfold(id, State::Ready(paths), move |state| {
-//         multihash(id, state)
-//     })
-// }
+pub type HashPair = (IHash, PathBuf);
 
-pub fn hash_files(paths: Vec<PathBuf>) -> Response<(IHash, PathBuf)> {
+// Just a little utility function
+pub fn files<I: 'static + Hash + Copy + Send + Sync>(
+    id: I,
+    paths: Vec<PathBuf>,
+) -> iced::Subscription<(I, Progress<Vec<HashPair>>)> {
+    subscription::unfold(id, State::Ready(paths), move |state| {
+        multihash(id, state)
+    })
+}
+
+pub fn hash_files(paths: Vec<PathBuf>) -> Response<HashPair> {
     let (tx, rx) = std::sync::mpsc::channel();
     let num_files = paths.len();
     std::thread::spawn(move || {
@@ -41,7 +43,7 @@ pub struct MultiHash<I> {
     paths: Vec<PathBuf>,
 }
 
-async fn multihash<I: Copy>(id: I, state: State) -> (Option<(I, Progress)>, State) {
+async fn multihash<I: Copy>(id: I, state: State) -> (Option<(I, Progress<Vec<HashPair>>)>, State) {
     match state {
         State::Ready(paths) => {
             let response = hash_files(paths);
@@ -61,13 +63,14 @@ async fn multihash<I: Copy>(id: I, state: State) -> (Option<(I, Progress)>, Stat
             total,
             num_hashed,
         } => {
-            let num_hashed = num_hashed + response.chunk().len();
+            let chunk = response.chunk();
+            let num_hashed = num_hashed + chunk.len();
 
             let percentage = (num_hashed as f32 / total as f32) * 100.0;
 
             if !response.complete {
                 (
-                    Some((id, Progress::Advanced(percentage))),
+                    Some((id, Progress::Advanced(percentage, chunk))),
                     State::Hashing {
                         response,
                         total,
@@ -88,9 +91,9 @@ async fn multihash<I: Copy>(id: I, state: State) -> (Option<(I, Progress)>, Stat
 }
 
 #[derive(Debug, Clone)]
-pub enum Progress {
+pub enum Progress<T> {
     Started,
-    Advanced(f32),
+    Advanced(f32, T),
     Finished,
     Errored,
 }

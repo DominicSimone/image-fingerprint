@@ -15,9 +15,11 @@ use lib::{
     ihash::{dhash, dhash_rotations},
 };
 use rfd::FileDialog;
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, io::Write};
 
-// mod hash_dir;
+use self::hash_dir::{Progress, HashPair};
+
+mod hash_dir;
 mod style;
 
 pub struct Gui {
@@ -27,7 +29,8 @@ pub struct Gui {
     found_images: Vec<image::Handle>,
     image_to_process: DynamicImage,
     pasted_image: image::Handle,
-    // multihashes: Vec<MultiHash>,
+    multihashes: Vec<MultiHash>,
+    last_id: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -36,12 +39,11 @@ pub enum Message {
     ClearImage,
     SaveHashstoreAs,
     HashDirectory,
-    HashExistingImage,
+    HashExistingImages,
     AddFile,
     PasteImage,
     Search,
-    MultiHash((usize, Vec<PathBuf>)),
-    // MutliHashProgressed((usize, hash_dir::Progress)),
+    MultiHashProgressed((usize, Progress<Vec<HashPair>>)),
 }
 
 impl Application for Gui {
@@ -58,7 +60,8 @@ impl Application for Gui {
                 found_paths: vec![],
                 found_images: vec![],
                 pasted_image: image::Handle::from_memory(include_bytes!("../icon.png").to_vec()),
-                // multihashes: vec![],
+                multihashes: vec![],
+                last_id: 0,
             },
             Command::none(),
         )
@@ -69,8 +72,7 @@ impl Application for Gui {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        // Subscription::batch(self.multihashes.iter().map(Download::subscription))
-        todo!()
+        Subscription::batch(self.multihashes.iter().map(MultiHash::subscription))
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -125,45 +127,51 @@ impl Application for Gui {
                     self.fingerprint_store_path = Some(PathBuf::from_str(spath).unwrap());
                 }
             }
-            Message::HashExistingImage => {
+            Message::HashExistingImages => {
                 if let Some(paths) = FileDialog::new().pick_files() {
-                    for path in paths {
-                        if let Ok(image) = ::image::open(&path) {
-                            let hash = dhash(&image);
-                            self.hashstore.add_hash(&hash, &path.to_str().unwrap());
-                        }
+                    self.multihashes.push(MultiHash::new(self.last_id, paths));
+                    if let Some(multihash) = self.multihashes.get_mut(self.last_id) {
+                        multihash.start();
                     }
-                    let _ = self.hashstore.save();
+                    self.last_id = self.last_id + 1;
                 }
             }
+            // TODO still blocks the main thread
             Message::HashDirectory => {
                 if let Some(path) = FileDialog::new().pick_folder() {
+                    let mut paths: Vec<PathBuf> = vec![];
                     if let Ok(dir_iter) = std::fs::read_dir(path) {
                         for entry in dir_iter {
                             let entry = entry.unwrap();
                             if entry.file_type().unwrap().is_dir() {
                                 continue;
                             }
-                            let spath = entry.path();
-                            if let Ok(image) = ::image::open(&spath) {
-                                let hash = dhash(&image);
-                                self.hashstore.add_hash(&hash, &spath.to_str().unwrap());
-                            }
+                            paths.push(entry.path());
                         }
-                        let _ = self.hashstore.save();
                     }
+                    self.multihashes.push(MultiHash::new(self.last_id, paths));
+                    if let Some(multihash) = self.multihashes.get_mut(self.last_id) {
+                        multihash.start();
+                    }
+                    self.last_id = self.last_id + 1;
                 }
             }
-            Message::MultiHash((id, vec)) => {
-                // if let Some(multihash) = self.multihashes.get_mut(id) {
-                //     // TODO this needs to deviate from the example code
-                // }
-            },
-            // Message::MutliHashProgressed((id, progress)) => {
-                // if let Some(multihash) = self.multihashes.iter_mut().find(|multihash| multihash.id == id) {
-                //     multihash.progress(progress)
-                // }
-            // },
+            Message::MultiHashProgressed((id, progress)) => {
+                if let Some(multihash) = self
+                    .multihashes
+                    .iter_mut()
+                    .find(|multihash| multihash.id == id)
+                {
+                    if let Progress::Advanced(_, newHashes) = &progress {
+                        for (hash, pathbuf) in newHashes {
+                            self.hashstore.add_hash(hash, pathbuf.clone().to_str().unwrap())
+                        }
+                        self.hashstore.save();
+                    }
+                    
+                    multihash.progress(progress)
+                }
+            }
         }
 
         Command::none()
@@ -174,6 +182,7 @@ impl Application for Gui {
             fingerprint_store_path,
             found_images,
             found_paths,
+            multihashes,
             ..
         } = self;
 
@@ -181,6 +190,22 @@ impl Application for Gui {
             Some(file) => message(file.to_str().unwrap_or("No file")),
             None => message("No fingerprint file specified"),
         };
+
+        let progress_bar = multihashes
+            .iter()
+            .rev()
+            .find(|multihash| {
+                match multihash.state {
+                    State::Hashing { progress } => progress < 100.0,
+                    _ => false
+                }
+            })
+            .map(|multihash| Column::new().spacing(20).push(multihash.view())).unwrap_or(
+                Column::new()
+                .spacing(10)
+                .padding(10)
+                .push(ProgressBar::new(0.0..=100.0, 100.0))
+            );
 
         let image_results: Element<_> = if !found_images.is_empty() {
             found_images
@@ -210,8 +235,8 @@ impl Application for Gui {
                     .width(Length::Fill),
             )
             .push(
-                Button::new(button_text("Fingerprint Existing Image"))
-                    .on_press(Message::HashExistingImage)
+                Button::new(button_text("Fingerprint Existing Images"))
+                    .on_press(Message::HashExistingImages)
                     .style(style::Button::Additive)
                     .width(Length::Fill),
             )
@@ -276,7 +301,9 @@ impl Application for Gui {
             .push(image_viewer)
             .push(fingerprint_pane);
 
-        Container::new(row)
+        let col = Column::new().push(progress_bar).push(row);
+
+        Container::new(col)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(5)
@@ -284,93 +311,82 @@ impl Application for Gui {
     }
 }
 
-// #[derive(Debug)]
-// struct MultiHash {
-//     id: usize,
-//     state: State,
-//     paths: Vec<PathBuf>,
-// }
+#[derive(Debug)]
+struct MultiHash {
+    id: usize,
+    state: State,
+    paths: Vec<PathBuf>,
+}
 
-// #[derive(Debug)]
-// enum State {
-//     Idle,
-//     Hashing { progress: f32 },
-//     Finished,
-//     Errored,
-// }
+#[derive(Debug)]
+enum State {
+    Idle,
+    Hashing { progress: f32 },
+    Finished,
+    Errored,
+}
 
-// impl MultiHash {
-//     pub fn new(id: usize) -> Self {
-//         MultiHash {
-//             id,
-//             state: State::Idle,
-//             paths: vec![],
-//         }
-//     }
+impl MultiHash {
+    pub fn new(id: usize, paths: Vec<PathBuf>) -> Self {
+        MultiHash {
+            id,
+            state: State::Idle,
+            paths,
+        }
+    }
 
-//     pub fn start(&mut self) {
-//         match self.state {
-//             State::Idle { .. } | State::Finished { .. } | State::Errored { .. } => {
-//                 self.state = State::Hashing { progress: 0.0 };
-//             }
-//             _ => {}
-//         }
-//     }
+    pub fn start(&mut self) {
+        match self.state {
+            State::Idle { .. } | State::Finished { .. } | State::Errored { .. } => {
+                self.state = State::Hashing { progress: 0.0 };
+            }
+            _ => {}
+        }
+    }
 
-//     pub fn progress(&mut self, new_progress: hash_dir::Progress) {
-//         match &mut self.state {
-//             State::Hashing { progress } => match new_progress {
-//                 hash_dir::Progress::Started => {
-//                     *progress = 0.0;
-//                 }
-//                 hash_dir::Progress::Advanced(percentage) => {
-//                     *progress = percentage;
-//                 }
-//                 hash_dir::Progress::Finished => self.state = State::Finished,
-//                 hash_dir::Progress::Errored => self.state = State::Errored,
-//             },
-//             _ => {}
-//         }
-//     }
+    pub fn progress<T>(&mut self, new_progress: hash_dir::Progress<T>) {
+        match &mut self.state {
+            State::Hashing { progress } => match new_progress {
+                hash_dir::Progress::Started => {
+                    *progress = 0.0;
+                }
+                hash_dir::Progress::Advanced(percentage, vec) => {
+                    *progress = percentage;
+                }
+                hash_dir::Progress::Finished => self.state = State::Finished,
+                hash_dir::Progress::Errored => self.state = State::Errored,
+            },
+            _ => {}
+        }
+    }
 
-//     pub fn subscription(&self) -> Subscription<Message> {
-//         match self.state {
-//             State::Hashing { .. } => {
-//                 hash_dir::file(self.id, self.paths.clone())
-//                     .map(Message::MutliHashProgressed)
-//             }
-//             _ => Subscription::none(),
-//         }
-//     }
+    pub fn subscription(&self) -> Subscription<Message> {
+        match self.state {
+            State::Hashing { .. } => {
+                hash_dir::files(self.id, self.paths.clone()).map(Message::MultiHashProgressed)
+            }
+            _ => Subscription::none(),
+        }
+    }
 
-//     pub fn view(&mut self) -> Element<Message> {
-//         let current_progress = match &self.state {
-//             State::Idle { .. } => 0.0,
-//             State::Hashing { progress } => *progress,
-//             State::Finished { .. } => 100.0,
-//             State::Errored { .. } => 0.0,
-//         };
+    pub fn view(&self) -> Element<Message> {
+        let current_progress = match &self.state {
+            State::Idle { .. } => 0.0,
+            State::Hashing { progress } => *progress,
+            State::Finished { .. } => 100.0,
+            State::Errored { .. } => 0.0,
+        };
 
-//         let progress_bar = ProgressBar::new(0.0..=100.0, current_progress);
+        let progress_bar = ProgressBar::new(0.0..=100.0, current_progress);
 
-//         let control: Element<_> = match &mut self.state {
-//             State::Idle => Text::new("Idle").into(),
-//             State::Finished => Text::new("Finished").into(),
-//             State::Hashing { .. } => {
-//                 Text::new(format!("Hashing images... {:.2}%", current_progress)).into()
-//             }
-//             State::Errored => Text::new("Errored").into(),
-//         };
-
-//         Column::new()
-//             .spacing(10)
-//             .padding(10)
-//             .align_items(Alignment::Center)
-//             .push(progress_bar)
-//             .push(control)
-//             .into()
-//     }
-// }
+        Column::new()
+            .spacing(10)
+            .padding(10)
+            .align_items(Alignment::Center)
+            .push(progress_bar)
+            .into()
+    }
+}
 
 fn message<'a>(message: &str) -> Element<'a, Message> {
     Container::new(

@@ -7,7 +7,7 @@ pub mod ihash {
         DHashRotations
     }
 
-    #[derive(Default, Clone, Copy, Serialize, Deserialize)]
+    #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
     pub struct IHash {
         value: u64,
     }

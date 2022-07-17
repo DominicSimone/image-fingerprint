@@ -10,7 +10,6 @@ const SOBEL_KERNEL_Y: [f32; 9] = [1., 2., 1., 0., 0., 0., -1., -2., -1.];
 pub struct Corner {
     pub index: usize,
     pub score: f32,
-    //TODO May need more fields here for fingerprint generation
 }
 
 impl PartialEq for Corner {
